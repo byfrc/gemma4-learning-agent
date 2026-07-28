@@ -17,7 +17,7 @@ from typing import Any
 
 import torch
 from torch.utils.data import DataLoader, Dataset
-from transformers import AutoProcessor, AutoModelForImageTextToText, BitsAndBytesConfig
+from transformers import AutoProcessor, AutoModelForCausalLM, BitsAndBytesConfig
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 
 
@@ -64,17 +64,69 @@ def collate(batch, pad_token_id: int):
     return {k:torch.stack(v) for k,v in out.items()}
 
 
-def load_rows(path: str):
-    rows=[]
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if line.strip():
-            row=json.loads(line)
-            q=str(row.get("instruction") or row.get("question") or row.get("prompt") or "").strip()
-            a=str(row.get("output") or row.get("answer") or row.get("response") or "").strip()
-            if q and a: rows.append(row)
-    if len(rows)<2: raise ValueError("至少需要 2 条含 instruction/question 与 output/answer 的样本。")
-    return rows
 
+def load_rows(path: str):
+    rows = []
+
+    for line in Path(path).read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+
+        row = json.loads(line)
+
+        # 新格式：messages
+        if "messages" in row:
+            messages = row["messages"]
+
+            user_text = ""
+            assistant_text = ""
+
+            for item in messages:
+                if item["role"] == "user":
+                    user_text = item["content"]
+                elif item["role"] == "assistant":
+                    assistant_text = item["content"]
+
+            if user_text and assistant_text:
+                rows.append(
+                    {
+                        "instruction": user_text,
+                        "output": assistant_text,
+                        "agent_type": row.get(
+                            "metadata",
+                            {}
+                        ).get(
+                            "agent_mode",
+                            ""
+                        ),
+                    }
+                )
+
+        # 兼容旧格式
+        else:
+            q = str(
+                row.get("instruction")
+                or row.get("question")
+                or row.get("prompt")
+                or ""
+            ).strip()
+
+            a = str(
+                row.get("output")
+                or row.get("answer")
+                or row.get("response")
+                or ""
+            ).strip()
+
+            if q and a:
+                rows.append(row)
+
+    if len(rows) < 2:
+        raise ValueError(
+            "至少需要2条有效训练样本"
+        )
+
+    return rows
 
 def find_targets(model, target: str):
     suffixes=["q_proj","k_proj","v_proj","o_proj"]
@@ -139,8 +191,8 @@ def main():
         bnb_4bit_use_double_quant=True,
         bnb_4bit_compute_dtype=torch.bfloat16,
     )
-    model=AutoModelForImageTextToText.from_pretrained(
-        a.model_path, quantization_config=bnb, device_map="auto",
+    model=AutoModelForCausalLM.from_pretrained(
+        a.model_path, quantization_config=bnb, device_map={"":0},
         dtype=torch.bfloat16, trust_remote_code=True, attn_implementation="sdpa",
     )
     model.config.use_cache=False
