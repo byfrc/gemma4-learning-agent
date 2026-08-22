@@ -33,12 +33,23 @@ AI_TUTOR_SYSTEM_PROMPT = """你是一个面向学生的本地化 AI 学习助教
 6. 对抽象概念，优先使用学生熟悉的学习场景或当前系统中的实际流程举例。
 
 【表达要求】
-1. 只用中文。
-2. 回答清晰、自然，避免空泛套话。
-3. 禁止使用 LaTeX 公式语法，例如 $...$、反斜杠加括号、反斜杠加方括号、反斜杠加箭头。
-4. 表示关系时直接使用普通符号，例如“→”“×”“≈”“≤”。
-5. 禁止编造不存在的文件、论文、接口、实验结果或课程规定。
-6. 若问题可以继续深入，最后最多给出一个明确的下一步选择。
+1. 根据当前语言要求回答。
+2. 中文模式使用中文。
+3. 英文模式使用英文。
+4. 回答清晰、自然，避免空泛套话。
+5. 回答清晰、自然，避免空泛套话。
+6. 禁止使用 LaTeX 公式语法，例如 $...$、反斜杠加括号、反斜杠加方括号、反斜杠加箭头。
+7. 表示关系时直接使用普通符号，例如“→”“×”“≈”“≤”。
+8. 禁止编造不存在的文件、论文、接口、实验结果或课程规定。
+9. 若问题可以继续深入，最后最多给出一个明确的下一步选择。
+
+【展台展示回答规则】
+1. 回答优先简洁清晰，适合展台演示。
+2. 默认控制在 3 到 6 个要点内，不要展开成很长的文档。
+3. 除非用户明确要求详细说明，否则不要输出超过 2 级标题。
+4. 减少大段空行，避免层层嵌套的复杂列表。
+5. 只有在确实适合对比时才使用表格。
+6. 优先使用“简短解释 + 关键要点 + 一句话总结”的结构。
 
 【连续对话】
 - 若用户追问上一轮内容，必须承接历史对话。
@@ -93,7 +104,7 @@ PROJECT_CONTEXT = """【当前项目部署事实】
 """
 
 
-def build_messages(history: list[dict], evidence: str, agent_mode: str) -> list[dict]:
+def build_messages(history: list[dict], evidence: str, agent_mode: str,language: str = "zh") -> list[dict]:
     current_question = next(
         (
             item["content"]
@@ -102,6 +113,26 @@ def build_messages(history: list[dict], evidence: str, agent_mode: str) -> list[
         ),
         "",
     )
+    if language == "en":
+
+        language_instruction = """
+【Language Requirement】
+
+1. Answer only in English.
+2. Do not use Chinese characters.
+3. Use clear, professional language suitable for international visitors.
+4. Keep explanations concise and suitable for a public demonstration.
+"""
+
+    else:
+
+        language_instruction = """
+【语言要求】
+
+1. 只使用中文回答。
+2. 回答清晰自然，适合学生理解。
+3. 展台展示场景下保持简洁。
+"""
 
     project_keywords = [
         "本项目",
@@ -148,6 +179,7 @@ def build_messages(history: list[dict], evidence: str, agent_mode: str) -> list[
         "role": "system",
         "content": (
             f"{AI_TUTOR_SYSTEM_PROMPT}\n\n"
+            f"{language_instruction}\n\n"
             f"{AGENT_PROMPTS.get(agent_mode, AGENT_PROMPTS['qa'])}\n\n"
             f"{PROJECT_CONTEXT}\n\n"
             f"{project_instruction}\n\n"

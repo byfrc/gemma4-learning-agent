@@ -13,7 +13,11 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=24)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=100)
     agent_mode: Literal["qa", "learning_path", "quiz", "coach"] = "qa"
-    use_rag: bool = True
+    
+    # 前端语言模式
+    language: Literal["zh", "en"] = "zh"
+    
+    use_rag: bool = True  
     top_k: int = Field(default=3, ge=0, le=6)
     temperature: float = Field(default=0.35, ge=0, le=1.5)
     max_tokens: int = Field(default=768, ge=64, le=2048)

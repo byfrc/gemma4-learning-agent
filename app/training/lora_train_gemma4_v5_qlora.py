@@ -35,12 +35,19 @@ class JsonlDataset(Dataset):
 
     def build_messages(self, row):
 
-        # 新版 messages 格式
+        # ==========================
+        # v5 messages format
+        # ==========================
+
         if "messages" in row:
+
             return row["messages"]
 
 
-        # 兼容旧版 instruction/output
+        # ==========================
+        # old instruction/output format
+        # ==========================
+
         instruction = str(
             row.get("instruction")
             or row.get("question")
@@ -58,6 +65,7 @@ class JsonlDataset(Dataset):
 
 
         if not instruction or not output:
+
             return None
 
 
@@ -135,65 +143,115 @@ def collate(batch, pad_token_id: int):
 
 
 def load_rows(path: str):
+
     rows = []
 
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
-        if not line.strip():
-            continue
 
-        row = json.loads(line)
+    with Path(path).open(
+        encoding="utf-8"
+    ) as f:
 
-        # 新格式：messages
-        if "messages" in row:
-            messages = row["messages"]
 
-            user_text = ""
-            assistant_text = ""
+        for line_number, line in enumerate(
+            f,
+            start=1
+        ):
 
-            for item in messages:
-                if item["role"] == "user":
-                    user_text = item["content"]
-                elif item["role"] == "assistant":
-                    assistant_text = item["content"]
 
-            if user_text and assistant_text:
-                rows.append(
-                    {
-                        "instruction": user_text,
-                        "output": assistant_text,
-                        "agent_type": row.get(
-                            "metadata",
-                            {}
-                        ).get(
-                            "agent_mode",
-                            ""
-                        ),
-                    }
+            if not line.strip():
+
+                continue
+
+
+            try:
+
+                row = json.loads(line)
+
+
+            except json.JSONDecodeError as e:
+
+                raise ValueError(
+                    f"JSON format error at line {line_number}: {e}"
                 )
 
-        # 兼容旧格式
-        else:
-            q = str(
-                row.get("instruction")
-                or row.get("question")
-                or row.get("prompt")
-                or ""
-            ).strip()
 
-            a = str(
-                row.get("output")
-                or row.get("answer")
-                or row.get("response")
-                or ""
-            ).strip()
+            # ==========================
+            # v5 messages format
+            # ==========================
 
-            if q and a:
-                rows.append(row)
+            if "messages" in row:
+
+
+                messages = row["messages"]
+
+
+                has_user = any(
+                    x.get("role") == "user"
+                    for x in messages
+                )
+
+
+                has_assistant = any(
+                    x.get("role") == "assistant"
+                    for x in messages
+                )
+
+
+                if (
+                    has_user
+                    and
+                    has_assistant
+                ):
+
+                    rows.append(
+                        {
+                            "messages": messages
+                        }
+                    )
+
+
+            # ==========================
+            # old format compatibility
+            # ==========================
+
+            else:
+
+
+                instruction = str(
+                    row.get("instruction")
+                    or row.get("question")
+                    or row.get("prompt")
+                    or ""
+                ).strip()
+
+
+                output = str(
+                    row.get("output")
+                    or row.get("answer")
+                    or row.get("response")
+                    or ""
+                ).strip()
+
+
+                if instruction and output:
+
+                    rows.append(
+                        row
+                    )
+
+
 
     if len(rows) < 2:
+
         raise ValueError(
-            "至少需要2条有效训练样本"
+            "No valid training samples found."
         )
+
+
+    print(
+        f"Loaded samples: {len(rows)}"
+    )
+
 
     return rows
 
@@ -223,14 +281,14 @@ def args():
     p.add_argument("--model_path",required=True)
     p.add_argument("--dataset",required=True)
     p.add_argument("--output_dir",required=True)
-    p.add_argument("--epochs",type=float,default=1)
-    p.add_argument("--eval_size",type=int,default=10)
-    p.add_argument("--max_length",type=int,default=1024)
-    p.add_argument("--lr",type=float,default=1e-4)
+    p.add_argument("--epochs",type=float,default=3)
+    p.add_argument("--eval_size",type=int,default=120)
+    p.add_argument("--max_length",type=int,default=2048)
+    p.add_argument("--lr",type=float,default=2e-4)
     p.add_argument("--batch",type=int,default=1)
-    p.add_argument("--grad_accum",type=int,default=8)
-    p.add_argument("--r",type=int,default=8)
-    p.add_argument("--alpha",type=int,default=16)
+    p.add_argument("--grad_accum",type=int,default=16)
+    p.add_argument("--r",type=int,default=16)
+    p.add_argument("--alpha",type=int,default=32)
     p.add_argument("--target",choices=["attention","all"],default="attention")
     p.add_argument("--resume_adapter",default="")
     return p.parse_args()

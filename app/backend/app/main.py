@@ -405,6 +405,7 @@ async def chat(payload: ChatRequest):
         history,
         rag.format_evidence(evidence_rows),
         payload.agent_mode,
+        payload.language,
     )
 
     try:

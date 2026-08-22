@@ -1,14 +1,407 @@
 const API = window.__API_BASE__ || "/api";
 
 const state = {
+
   chats: [],
+
   active: null,
-  mode: "qa",
+
+  mode:"qa",
+
+  language:"zh"
+
 };
+/*语言切换*/
+const LANGUAGE_TEXT = {
+
+  zh: {
+
+    workspace_title:
+      "私域学习智能体工作台",
+
+    brand_desc:"本地大模型 · 私有知识库",
+
+    hero_title:
+      "让模型 <em>懂你的资料</em>，陪你持续学习",
+
+    hero_desc:
+      "基于个人课程资料进行检索、问答、规划与陪练；",
+
+    demo_title:"推荐体验",
+
+    chip_rag:
+      "知识库检索",
+
+    chip_chat:
+      "多轮追问",
+
+    chip_plan:
+      "学习规划",
+
+    chip_feedback:
+      "学习反馈",
+
+
+    tab_qa:
+      "AI 问答",
+
+    tab_qa_desc:
+      "知识解释与追问",
+
+
+    tab_plan:
+      "学习路径",
+
+    tab_plan_desc:
+      "目标拆解与计划",
+
+
+    tab_quiz:
+      "AI 出题",
+
+    tab_quiz_desc:
+      "检测掌握程度",
+
+
+    tab_coach:
+      "AI 陪练",
+
+    tab_coach_desc:
+      "苏格拉底式引导",
+
+
+    assistant:
+      "Gemma4 学习助教",
+
+    assistant_sub:
+      "已连接私域知识库",
+
+    knowledge:
+      "知识库管理",
+
+    placeholder:
+       "输入问题；你可以继续追问上一轮内容…",
+
+    brand_name:
+       "Gemma4学习智能体",
+      
+    brand_sub:
+       "RAG · LoRA · Agent",
+      
+    new_chat:
+        "新建对话",
+
+    recent_chat:
+        "最近对话",
+
+    mode_qa:
+        "多轮 AI 问答",
+    
+    mode_tip:
+        "基于你的资料回答问题，并支持连续追问。",
+    
+    knowledge_title:
+        "知识库管理",
+    
+    knowledge_desc:
+        "上传后系统会自动切块并建立混合检索索引。",
+
+    select_material:
+        "选择课程资料",
+
+    upload_desc:
+        "当前支持 TXT、MD、CSV，单个文件不超过 30 MB。",
+
+    upload_button:
+        "上传并构建索引",
+
+    source_title:
+        "已入库资料",
+
+    source_desc:
+        "上传新文件会自动刷新索引",
+    send:
+        "发送",
+
+    enter_send:
+        "Enter 发送",
+
+    shift_enter:
+        "Shift + Enter 换行",
+
+    privacy:
+        "你的资料不会被用于公共训练",
+      
+    feature_rag:
+        "知识库检索",
+      
+    feature_followup:
+        "多轮追问",
+
+    feature_plan:
+        "学习规划",
+
+    feature_feedback:
+        "学习反馈",
+      
+    kb_files:"知识库文件",
+
+    kb_chunks:"可检索片段",
+
+    learning_agent:"学习智能体",
+
+    current_session:"当前会话",
+
+    rag_sources:"📚 知识来源",
+
+  },
+
+
+  en: {
+
+
+    workspace_title:
+      "Private Learning Agent Workspace",
+
+
+    hero_title:
+      "Make AI <em>understand your knowledge</em> and learn with you",
+
+    demo_title:"Recommended Experience",
+
+
+    hero_desc:
+      "Retrieve, answer, plan and practice with your private knowledge base.",
+
+
+    chip_rag:
+      "Knowledge Retrieval",
+
+    chip_chat:
+      "Multi-turn Chat",
+
+    chip_plan:
+      "Learning Path",
+
+    chip_feedback:
+      "Learning Feedback",
+
+
+    tab_qa:
+      "AI Q&A",
+
+    tab_qa_desc:
+      "Knowledge Explanation & Follow-up",
+
+
+    tab_plan:
+      "Learning Path",
+
+    tab_plan_desc:
+      "Goal Planning & Breakdown",
+
+
+    tab_quiz:
+      "AI Quiz",
+
+    tab_quiz_desc:
+      "Knowledge Assessment",
+
+
+    tab_coach:
+      "AI Coach",
+
+    tab_coach_desc:
+      "Socratic Guidance",
+
+
+    assistant:
+      "Gemma4 AI Tutor",
+
+
+    assistant_sub:
+      "Connected to Private Knowledge Base",
+
+
+    knowledge:
+      "Knowledge Base",
+
+
+    placeholder:
+      "Ask a question and continue your learning journey...",
+
+    brand_name:
+        "Gemma4 Learning Agent",
+
+    brand_sub:
+        "RAG · LoRA · Agent",
+
+    new_chat:
+        "New Chat",
+
+    recent_chat:
+        "Recent Conversations",
+
+    mode_qa:
+        "Multi-turn AI Q&A",
+      
+    mode_tip:
+        "Answer questions based on your knowledge base and support continuous conversations.",
+    
+    knowledge_title:
+        "Knowledge Base",
+
+    knowledge_desc:
+        "Uploaded documents will be chunked and indexed automatically.",
+
+    select_material:
+        "Select Learning Materials",
+
+    upload_desc:
+        "Currently supports TXT, MD and CSV files, up to 30 MB.",
+
+    upload_button:
+        "Upload and Build Index",
+
+    source_title:
+        "Indexed Documents",
+
+    source_desc:
+        "Uploading new files will refresh the index automatically",
+
+    send:
+        "Send",
+
+    enter_send:
+        "Press Enter to send",
+
+    shift_enter:
+        "Shift + Enter for new line",
+
+    privacy:
+        "Your data will not be used for public training",
+
+    feature_rag:"Knowledge Retrieval",
+      
+    feature_followup:"Multi-turn Dialogue",
+    
+    feature_plan:"Learning Plan",
+    
+    feature_feedback:"Learning Feedback",
+
+    kb_files:"Knowledge Files",
+
+    kb_chunks:"Retrievable Chunks",
+
+    learning_agent:"Learning Agent",
+
+    current_session:"Current Session",
+
+    brand_desc:"Local AI · Private Knowledge",
+
+    rag_sources:"📚 Knowledge Sources",
+  }
+
+};
+/*语言切换*/
 
 const $ = (selector) => document.querySelector(selector);
 const messagesBox = $("#chatMessages");
 const historyBox = $("#historyList");
+
+
+/*语言切换函数*/
+function changeLanguage(lang){
+
+    state.language = lang;
+
+
+    document
+    .querySelector("#zhBtn")
+    .classList.toggle(
+        "active",
+        lang==="zh"
+    );
+
+
+    document
+    .querySelector("#enBtn")
+    .classList.toggle(
+        "active",
+        lang==="en"
+    );
+
+
+    // 修改所有带 data-i18n 的文字
+    document
+    .querySelectorAll("[data-i18n]")
+    .forEach((element)=>{
+
+        const key = element.dataset.i18n;
+
+        if(LANGUAGE_TEXT[lang][key]){
+
+            element.innerHTML =
+            LANGUAGE_TEXT[lang][key];
+
+        }
+
+    });
+
+
+
+    // 聊天区域
+    $("#assistantName").textContent =
+    LANGUAGE_TEXT[lang].assistant;
+
+
+    $("#assistantSub").textContent =
+    LANGUAGE_TEXT[lang].assistant_sub;
+
+
+
+    $("#knowledgeBtn").innerHTML =
+    "▣ " + LANGUAGE_TEXT[lang].knowledge;
+
+
+
+    $("#userInput").placeholder =
+    LANGUAGE_TEXT[lang].placeholder;
+
+
+
+    updateModeTitle();
+
+}
+
+
+function updateModeTitle(){
+
+const titles={
+
+zh:{
+qa:"多轮 AI 问答",
+learning_path:"学习路径规划",
+quiz:"AI 出题",
+coach:"AI 陪练"
+},
+
+
+en:{
+qa:"Multi-turn AI Q&A",
+learning_path:"Learning Path",
+quiz:"AI Quiz",
+coach:"AI Coach"
+}
+
+};
+
+
+$("#modeHeading").textContent =
+titles[state.language][state.mode];
+
+}
+/*语言切换函数*/
 
 function esc(text = "") {
   return text.replace(
@@ -24,11 +417,26 @@ function esc(text = "") {
 }
 
 function renderText(text = "") {
-  return esc(text)
-    .replace(/^### (.*)$/gm, "<h3>$1</h3>")
-    .replace(/^## (.*)$/gm, "<h2>$1</h2>")
-    .replace(/\*\*(.*?)\*\*/g, "<b>$1</b>")
-    .replace(/\n/g, "<br>");
+
+    const cleaned = text
+        .replace(/\r\n/g,"\n")
+        .replace(/\n[ \t]*\n[ \t]*\n+/g,"\n\n")
+        .trim();
+
+
+    if(window.marked){
+
+        marked.setOptions({
+            breaks:false,
+            gfm:true,
+        });
+
+        return marked.parse(cleaned);
+
+    }
+
+    return esc(cleaned)
+        .replace(/\n/g,"<br>");
 }
 
 function getChat() {
@@ -50,6 +458,8 @@ function setMode(mode) {
   };
 
   $("#userInput").placeholder = placeholderMap[mode] || placeholderMap.qa;
+
+  updateModeTitle();
 }
 
 function renderHistory() {
@@ -229,7 +639,7 @@ function evidenceHtml(items = []) {
 
   return `
     <details>
-      <summary>查看本轮 RAG 证据（${items.length} 条）</summary>
+      <summary data-i18n="rag_sources">查看本轮 RAG 证据（${items.length} 条）</summary>
       ${items
         .map(
           (item) => `
@@ -481,20 +891,10 @@ function renderMessages() {
     messagesBox.innerHTML = `
       <div class="welcome">
         <span class="eyebrow">Gemma4 Learning Agent</span>
-        <h3>今天想从哪里开始？</h3>
-        <p>
-          你可以基于本地课程资料连续追问，也可以切换到学习路径、
-          AI 出题与 AI 陪练。
+       <h3>${state.language==="zh"?"今天想从哪里开始？":"Where would you like to start today?"}
+        </h3>
+        <p>${state.language==="zh"?"你可以基于本地课程资料连续追问，也可以切换到学习路径、AI 出题与 AI 陪练。":"You can ask questions based on your private knowledge base, or switch to Learning Path, AI Quiz and AI Coach."}
         </p>
-        <div class="suggestions">
-          <button data-q="如何学习 RAG 技术？">如何学习 RAG 技术？</button>
-          <button data-q="RAG 和 LoRA 在这个项目里分别负责什么？">
-            RAG 和 LoRA 分别负责什么？
-          </button>
-          <button data-q="请给我规划两周机器学习学习路径。">
-            规划两周学习路径
-          </button>
-        </div>
       </div>
     `;
 
@@ -510,9 +910,9 @@ function renderMessages() {
         (message) => `
           <section class="message ${message.role}">
             <span class="who">
-              ${message.role === "user" ? "你" : "Gemma4 学习助教"}
+              ${message.role === "user" ? "Student" : "Gemma4 study-agent"}
             </span>
-            <div class="bubble">${renderText(message.content)}</div>
+            <div class="bubble" data-message-content></div>
             ${
               message.role === "assistant"
                 ? `${evidenceHtml(message.evidence || [])}${qualityFeedbackHtml(message)}`
@@ -522,6 +922,49 @@ function renderMessages() {
         `,
       )
       .join("");
+
+
+    const bubbles = messagesBox.querySelectorAll(
+      "[data-message-content]"
+    );
+
+
+    chat.messages.forEach((message, index)=>{
+
+      const bubble = bubbles[index];
+
+      if(!bubble){
+        return;
+      }
+
+      bubble.innerHTML = message.role === "user" ? esc(message.content) : renderText(message.content);
+
+
+      if(window.renderMathInElement){
+
+        renderMathInElement(
+          bubble,
+          {
+            delimiters:[
+              {
+                left:"$$",
+                right:"$$",
+                display:true
+              },
+              {
+                left:"$",
+                right:"$",
+                display:false
+              }
+            ],
+            throwOnError:false
+          }
+        );
+
+      }
+
+    });
+
   }
   bindQualityActions();
   messagesBox.scrollTop = messagesBox.scrollHeight;
@@ -675,6 +1118,7 @@ async function send() {
           },
         ],
         agent_mode: state.mode,
+        language: state.language,
         use_rag: $("#useRag").checked,
         top_k: Number($("#topK").value),
         temperature: 0.35,
@@ -719,7 +1163,8 @@ async function refreshStatus() {
     const response = await fetch(`${API}/health`);
     const data = await response.json();
 
-    $("#statusText").textContent = `在线 · ${data.provider}`;
+    $("#statusText").textContent =
+    `在线 · ${data.model}`;
     $("#fileMetric").textContent = data.knowledge_files;
     $("#chunkMetric").textContent = data.knowledge_chunks;
   } catch {
@@ -762,7 +1207,8 @@ $("#closeKnowledgeBtn").onclick = () => {
 $("#sendBtn").onclick = send;
 
 $("#userInput").addEventListener("keydown", (event) => {
-  if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+  if (event.key === "Enter" && !event.shiftKey) {
+    event.preventDefault();
     send();
   }
 });
@@ -840,5 +1286,19 @@ async function boot() {
   await refreshStatus();
 }
 
-setMode("qa");
-boot();
+document.addEventListener("DOMContentLoaded", async () => {
+    
+  $("#zhBtn").onclick=()=>{
+  changeLanguage("zh");
+  };
+
+
+  $("#enBtn").onclick=()=>{
+  changeLanguage("en");
+  };
+    
+  setMode("qa");
+  changeLanguage("zh");
+  await boot();
+
+});

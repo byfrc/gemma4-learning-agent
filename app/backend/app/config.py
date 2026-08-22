@@ -21,7 +21,7 @@ class Settings:
     model_provider = os.getenv("MODEL_PROVIDER", "openai_compatible").lower()
     vllm_base_url = os.getenv("VLLM_BASE_URL", "http://127.0.0.1:8001/v1").rstrip("/")
     vllm_api_key = os.getenv("VLLM_API_KEY", "EMPTY")
-    vllm_model = os.getenv("VLLM_MODEL", "google/gemma-4-12b-it")
+    vllm_model = os.getenv("VLLM_MODEL", "google/gemma4-learning")
 
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
     ollama_model = os.getenv("OLLAMA_MODEL", "gemma4:e4b")

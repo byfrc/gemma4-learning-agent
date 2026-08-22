@@ -2,7 +2,7 @@
 set -euo pipefail
 PROJECT_DIR="${1:-/opt/gemma4_learning_agent}"
 MODEL="${PROJECT_DIR}/models/gemma/gemma-4-12B-it"
-ADAPTER="${PROJECT_DIR}/models/lora/gemma4_learning_v5/adapter"
+ADAPTER="${PROJECT_DIR}/trained_models/gemma4_12b_lora/adapter"
 
 source /root/miniconda3/etc/profile.d/conda.sh
 conda activate gemma4_vllm
