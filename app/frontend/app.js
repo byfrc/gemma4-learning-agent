@@ -6,9 +6,18 @@ const state = {
 
   active: null,
 
+  subject: "ai",
+
   mode:"qa",
 
-  language:"zh"
+  language:"zh",
+
+  activeBySubject: {
+    ai: null,
+    java: null,
+  },
+
+  messageCache: new Map()
 
 };
 /*语言切换*/
@@ -305,6 +314,168 @@ const LANGUAGE_TEXT = {
 };
 /*语言切换*/
 
+const SUBJECT_COPY = {
+  zh: {
+    ai: {
+      switch_label: "AI",
+      full_name: "人工智能",
+      knowledge_label: "AI 知识库",
+      assistant_sub: "已连接 AI 知识库",
+      hero_kicker: "AI 学科 · 已开启私域知识增强",
+      mode_tip: "基于 AI 课程资料回答问题，并支持连续追问。",
+      welcome_title: "今天想从哪里开始？",
+      welcome_desc:
+        "你可以围绕人工智能课程资料连续追问，也可以切换到学习路径、AI 出题与 AI 陪练。",
+      placeholders: {
+        qa: "输入问题；你可以继续追问上一轮内容…",
+        learning_path: "例如：我想在两周内入门机器学习，每天可学 2 小时。",
+        quiz: "例如：围绕 RAG 基础生成 5 道中等难度选择题。",
+        coach: "说说你目前学不懂的地方，我会陪你一步步梳理。",
+      },
+    },
+    java: {
+      switch_label: "Java",
+      full_name: "Java",
+      knowledge_label: "Java 知识库",
+      assistant_sub: "已连接 Java 知识库",
+      hero_kicker: "Java 学科 · 已开启私域知识增强",
+      mode_tip: "基于 Java 课程资料回答问题，并支持连续追问。",
+      welcome_title: "今天想从哪里开始？",
+      welcome_desc:
+        "你可以围绕 Java 课程资料连续追问，也可以切换到学习路径、AI 出题与 AI 陪练。",
+      placeholders: {
+        qa: "例如：Java 的继承和封装有什么区别？",
+        learning_path: "例如：我想在两周内入门 Java，每天可学 2 小时。",
+        quiz: "例如：围绕 Java 面向对象生成 5 道选择题。",
+        coach: "例如：我看不懂 Java 的类和对象，帮我一步步理清。",
+      },
+    },
+  },
+  en: {
+    ai: {
+      switch_label: "AI",
+      full_name: "Artificial Intelligence",
+      knowledge_label: "AI Knowledge Base",
+      assistant_sub: "Connected to AI knowledge base",
+      hero_kicker: "AI track · Private knowledge enabled",
+      mode_tip: "Answer questions based on AI course materials and continue the conversation.",
+      welcome_title: "Where would you like to start today?",
+      welcome_desc:
+        "You can ask follow-up questions about AI course materials, or switch to Learning Path, AI Quiz and AI Coach.",
+      placeholders: {
+        qa: "Ask a question; you can continue from the previous turn.",
+        learning_path: "For example: I want to learn machine learning in two weeks, 2 hours per day.",
+        quiz: "For example: generate 5 medium-difficulty multiple-choice questions about RAG.",
+        coach: "Tell me where you are stuck and I will walk through it step by step.",
+      },
+    },
+    java: {
+      switch_label: "Java",
+      full_name: "Java",
+      knowledge_label: "Java Knowledge Base",
+      assistant_sub: "Connected to Java knowledge base",
+      hero_kicker: "Java track · Private knowledge enabled",
+      mode_tip: "Answer questions based on Java course materials and continue the conversation.",
+      welcome_title: "Where would you like to start today?",
+      welcome_desc:
+        "You can ask follow-up questions about Java course materials, or switch to Learning Path, AI Quiz and AI Coach.",
+      placeholders: {
+        qa: "For example: what is the difference between inheritance and encapsulation in Java?",
+        learning_path: "For example: I want to learn Java in two weeks, 2 hours per day.",
+        quiz: "For example: generate 5 Java OOP multiple-choice questions.",
+        coach: "For example: I do not understand Java classes and objects. Help me step by step.",
+      },
+    },
+  },
+};
+
+function getSubjectCopy(subject = state.subject, language = state.language) {
+  const langPack = SUBJECT_COPY[language] || SUBJECT_COPY.zh;
+  return langPack[subject] || langPack.ai;
+}
+
+function updateSubjectChrome() {
+  const copy = getSubjectCopy();
+  const subjectButtons = document.querySelectorAll(".subject-btn");
+
+  subjectButtons.forEach((button) => {
+    const subject = button.dataset.subject;
+    const active = subject === state.subject;
+    const buttonCopy =
+      (SUBJECT_COPY[state.language] || SUBJECT_COPY.zh)[subject] ||
+      (SUBJECT_COPY[state.language] || SUBJECT_COPY.zh).ai;
+
+    button.classList.toggle("active", active);
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+    button.textContent = buttonCopy.switch_label;
+    button.title = `${buttonCopy.full_name} ${state.language === "zh" ? "课程" : "course"}`;
+  });
+
+  const knowledgeButton = $("#knowledgeBtn");
+  if (knowledgeButton) {
+    knowledgeButton.innerHTML = `▣ ${copy.knowledge_label}`;
+    knowledgeButton.title = copy.knowledge_label;
+  }
+
+  const assistantSub = $("#assistantSub");
+  if (assistantSub) {
+    assistantSub.textContent = copy.assistant_sub;
+  }
+
+  const heroKicker = document.querySelector(".hero-kicker");
+  if (heroKicker) {
+    heroKicker.innerHTML = `<span class="live-dot"></span>${copy.hero_kicker}`;
+  }
+
+  const modeTip = $("#modeTip");
+  if (modeTip) {
+    modeTip.textContent = copy.mode_tip;
+  }
+
+  const knowledgeSubjectLabel = $("#knowledgeSubjectLabel");
+  if (knowledgeSubjectLabel) {
+    knowledgeSubjectLabel.textContent = copy.knowledge_label;
+  }
+
+  const subjectBadge = $("#subjectBadge");
+  if (subjectBadge) {
+    subjectBadge.textContent = copy.knowledge_label;
+  }
+}
+
+function updateComposerPlaceholder() {
+  const copy = getSubjectCopy();
+  const placeholders = copy.placeholders || {};
+  const textarea = $("#userInput");
+
+  if (!textarea) {
+    return;
+  }
+
+  textarea.placeholder = placeholders[state.mode] || placeholders.qa || "";
+}
+
+function rememberActiveConversation(conversationId) {
+  if (!state.subject) {
+    return;
+  }
+
+  state.activeBySubject[state.subject] = conversationId;
+}
+
+function cacheConversation(chat) {
+  if (!chat?.id) {
+    return;
+  }
+
+  state.messageCache.set(chat.id, chat.messages || []);
+  if (chat.subject) {
+    state.activeBySubject[chat.subject] = chat.id;
+  } else {
+    rememberActiveConversation(chat.id);
+  }
+}
+
 const $ = (selector) => document.querySelector(selector);
 const messagesBox = $("#chatMessages");
 const historyBox = $("#historyList");
@@ -347,29 +518,12 @@ function changeLanguage(lang){
         }
 
     });
-
-
-
     // 聊天区域
     $("#assistantName").textContent =
-    LANGUAGE_TEXT[lang].assistant;
+      LANGUAGE_TEXT[lang].assistant;
 
-
-    $("#assistantSub").textContent =
-    LANGUAGE_TEXT[lang].assistant_sub;
-
-
-
-    $("#knowledgeBtn").innerHTML =
-    "▣ " + LANGUAGE_TEXT[lang].knowledge;
-
-
-
-    $("#userInput").placeholder =
-    LANGUAGE_TEXT[lang].placeholder;
-
-
-
+    updateSubjectChrome();
+    updateComposerPlaceholder();
     updateModeTitle();
 
 }
@@ -450,15 +604,7 @@ function setMode(mode) {
     button.classList.toggle("active", button.dataset.mode === mode);
   });
 
-  const placeholderMap = {
-    qa: "输入问题；你可以继续追问上一轮内容…",
-    learning_path: "例如：我想在两周内入门机器学习，每天可学 2 小时。",
-    quiz: "例如：围绕 RAG 基础生成 5 道中等难度选择题。",
-    coach: "说说你目前学不懂的地方，我会陪你一步步梳理。",
-  };
-
-  $("#userInput").placeholder = placeholderMap[mode] || placeholderMap.qa;
-
+  updateComposerPlaceholder();
   updateModeTitle();
 }
 
@@ -617,6 +763,11 @@ async function removeConversation(chat) {
   }
 
   state.chats = state.chats.filter((item) => item.id !== chat.id);
+  state.messageCache.delete(chat.id);
+
+  if (state.activeBySubject[chat.subject] === chat.id) {
+    state.activeBySubject[chat.subject] = null;
+  }
 
   if (wasActive) {
     state.active = null;
@@ -888,13 +1039,12 @@ function renderMessages() {
   }
 
   if (!chat.messages || !chat.messages.length) {
+    const copy = getSubjectCopy();
     messagesBox.innerHTML = `
       <div class="welcome">
         <span class="eyebrow">Gemma4 Learning Agent</span>
-       <h3>${state.language==="zh"?"今天想从哪里开始？":"Where would you like to start today?"}
-        </h3>
-        <p>${state.language==="zh"?"你可以基于本地课程资料连续追问，也可以切换到学习路径、AI 出题与 AI 陪练。":"You can ask questions based on your private knowledge base, or switch to Learning Path, AI Quiz and AI Coach."}
-        </p>
+        <h3>${copy.welcome_title}</h3>
+        <p>${copy.welcome_desc}</p>
       </div>
     `;
 
@@ -981,26 +1131,26 @@ function addMessage(message) {
   renderMessages();
 }
 
-async function loadConversationList() {
-  const response = await fetch(`${API}/conversations`);
+async function loadConversationList(subject = state.subject) {
+  const response = await fetch(`${API}/conversations?subject=${encodeURIComponent(subject)}`);
 
   if (!response.ok) {
     throw new Error("无法读取历史会话列表。");
   }
 
   const summaries = await response.json();
-  const oldChats = new Map(state.chats.map((chat) => [chat.id, chat]));
 
   state.chats = summaries.map((item) => {
-    const oldChat = oldChats.get(item.conversation_id);
+    const cachedMessages = state.messageCache.get(item.conversation_id) || [];
 
     return {
       id: item.conversation_id,
+      subject: item.subject || subject,
       title: item.title,
       agent_mode: item.agent_mode,
       created_at: item.created_at,
       updated_at: item.updated_at,
-      messages: oldChat?.messages || [],
+      messages: cachedMessages,
     };
   });
 
@@ -1018,6 +1168,7 @@ async function openConversation(conversationId) {
 
   const chat = {
     id: detail.conversation_id,
+    subject: detail.subject || state.subject,
     title: detail.title,
     agent_mode: detail.agent_mode || "qa",
     created_at: detail.created_at,
@@ -1032,6 +1183,12 @@ async function openConversation(conversationId) {
     })),
   };
 
+  if (chat.subject && chat.subject !== state.subject) {
+    state.subject = chat.subject;
+    updateSubjectChrome();
+    updateComposerPlaceholder();
+  }
+
   const index = state.chats.findIndex((item) => item.id === chat.id);
 
   if (index >= 0) {
@@ -1041,6 +1198,7 @@ async function openConversation(conversationId) {
   }
 
   state.active = chat.id;
+  cacheConversation(chat);
   setMode(chat.agent_mode);
   renderHistory();
   renderMessages();
@@ -1055,6 +1213,7 @@ async function newChat() {
     body: JSON.stringify({
       title: "新对话",
       agent_mode: state.mode,
+      subject: state.subject,
     }),
   });
 
@@ -1067,6 +1226,7 @@ async function newChat() {
 
   const chat = {
     id: item.conversation_id,
+    subject: item.subject || state.subject,
     title: item.title,
     agent_mode: item.agent_mode,
     created_at: item.created_at,
@@ -1076,6 +1236,8 @@ async function newChat() {
 
   state.chats.unshift(chat);
   state.active = chat.id;
+  cacheConversation(chat);
+  rememberActiveConversation(chat.id);
 
   renderHistory();
   renderMessages();
@@ -1119,6 +1281,7 @@ async function send() {
         ],
         agent_mode: state.mode,
         language: state.language,
+        subject: state.subject,
         use_rag: $("#useRag").checked,
         top_k: Number($("#topK").value),
         temperature: 0.35,
@@ -1134,6 +1297,7 @@ async function send() {
 
     chat.title = data.title || chat.title;
     chat.agent_mode = state.mode;
+    chat.subject = data.subject || chat.subject || state.subject;
 
     addMessage({
       message_id: data.assistant_message_id || null,
@@ -1144,7 +1308,10 @@ async function send() {
       quality_feedback: null,
     });
 
-    await loadConversationList();
+    cacheConversation(chat);
+    rememberActiveConversation(chat.id);
+
+    await loadConversationList(state.subject);
     renderMessages();
   } catch (error) {
     addMessage({
@@ -1160,11 +1327,18 @@ async function send() {
 
 async function refreshStatus() {
   try {
-    const response = await fetch(`${API}/health`);
+    const response = await fetch(
+      `${API}/health?subject=${encodeURIComponent(state.subject)}`,
+    );
     const data = await response.json();
 
+    const subjectCopy = getSubjectCopy();
+
+    $("#statusDot").style.background = "#16b98d";
     $("#statusText").textContent =
-    `在线 · ${data.model}`;
+      state.language === "zh"
+        ? `在线 · ${subjectCopy.switch_label} · ${data.model}`
+        : `Online · ${subjectCopy.switch_label} · ${data.model}`;
     $("#fileMetric").textContent = data.knowledge_files;
     $("#chunkMetric").textContent = data.knowledge_chunks;
   } catch {
@@ -1174,8 +1348,15 @@ async function refreshStatus() {
 }
 
 async function refreshKnowledge() {
-  const response = await fetch(`${API}/knowledge/status`);
+  const response = await fetch(
+    `${API}/knowledge/status?subject=${encodeURIComponent(state.subject)}`,
+  );
   const data = await response.json();
+  const copy = getSubjectCopy();
+  const emptyText =
+    state.language === "zh"
+      ? `暂未上传${copy.knowledge_label}文件。`
+      : `No ${copy.knowledge_label} files uploaded yet.`;
 
   $("#fileMetric").textContent = data.file_count;
   $("#chunkMetric").textContent = data.chunk_count;
@@ -1184,7 +1365,41 @@ async function refreshKnowledge() {
     ? data.sources
         .map((source) => `<div class="source">${esc(source)}</div>`)
         .join("")
-    : `<div class="source">暂未上传知识库文件。</div>`;
+    : `<div class="source">${emptyText}</div>`;
+}
+
+async function switchSubject(subject) {
+  const nextSubject = subject === "java" ? "java" : "ai";
+
+  if (state.subject === nextSubject) {
+    updateSubjectChrome();
+    updateComposerPlaceholder();
+    await refreshKnowledge();
+    await refreshStatus();
+    return;
+  }
+
+  state.activeBySubject[state.subject] = state.active;
+  state.subject = nextSubject;
+  updateSubjectChrome();
+  updateComposerPlaceholder();
+
+  await loadConversationList(nextSubject);
+
+  const rememberedId = state.activeBySubject[nextSubject];
+  const rememberedChat =
+    state.chats.find((chat) => chat.id === rememberedId) ||
+    state.chats[0] ||
+    null;
+
+  if (rememberedChat) {
+    await openConversation(rememberedChat.id);
+  } else {
+    await newChat();
+  }
+
+  await refreshKnowledge();
+  await refreshStatus();
 }
 
 $("#newChatBtn").onclick = async () => {
@@ -1227,6 +1442,16 @@ document.querySelectorAll(".tab").forEach((button) => {
   };
 });
 
+document.querySelectorAll(".subject-btn").forEach((button) => {
+  button.onclick = async () => {
+    try {
+      await switchSubject(button.dataset.subject);
+    } catch (error) {
+      alert(`学科切换失败：${error.message}`);
+    }
+  };
+});
+
 $("#uploadForm").onsubmit = async (event) => {
   event.preventDefault();
 
@@ -1244,10 +1469,13 @@ $("#uploadForm").onsubmit = async (event) => {
   button.textContent = "索引构建中…";
 
   try {
-    const response = await fetch(`${API}/knowledge/upload`, {
+    const response = await fetch(
+      `${API}/knowledge/upload?subject=${encodeURIComponent(state.subject)}`,
+      {
       method: "POST",
       body: formData,
-    });
+      },
+    );
 
     const data = await response.json();
 
@@ -1267,10 +1495,16 @@ $("#uploadForm").onsubmit = async (event) => {
 
 async function boot() {
   try {
-    await loadConversationList();
+    await loadConversationList(state.subject);
 
-    if (state.chats.length > 0) {
-      await openConversation(state.chats[0].id);
+    const rememberedId = state.activeBySubject[state.subject];
+    const rememberedChat =
+      state.chats.find((chat) => chat.id === rememberedId) ||
+      state.chats[0] ||
+      null;
+
+    if (rememberedChat) {
+      await openConversation(rememberedChat.id);
     } else {
       await newChat();
     }
@@ -1284,6 +1518,7 @@ async function boot() {
   }
 
   await refreshStatus();
+  await refreshKnowledge();
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
@@ -1299,6 +1534,8 @@ document.addEventListener("DOMContentLoaded", async () => {
     
   setMode("qa");
   changeLanguage("zh");
+  updateSubjectChrome();
+  updateComposerPlaceholder();
   await boot();
 
 });

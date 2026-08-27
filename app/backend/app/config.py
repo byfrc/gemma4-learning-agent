@@ -6,6 +6,8 @@ from functools import lru_cache
 
 from dotenv import load_dotenv
 
+from .subjects import DEFAULT_SUBJECT, normalize_subject
+
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 load_dotenv(BACKEND_DIR / ".env")
 
@@ -30,17 +32,67 @@ class Settings:
     rag_chunk_size = int(os.getenv("RAG_CHUNK_SIZE", "500"))
     rag_chunk_overlap = int(os.getenv("RAG_CHUNK_OVERLAP", "90"))
     max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "30"))
+    default_subject = normalize_subject(
+        os.getenv("DEFAULT_SUBJECT", DEFAULT_SUBJECT)
+    )
 
     knowledge_dir = Path(os.getenv("KNOWLEDGE_DIR", str(BACKEND_DIR / "data" / "knowledge")))
     rag_index_path = Path(os.getenv("RAG_INDEX_PATH", str(BACKEND_DIR / "data" / "hybrid_rag.joblib")))
     chat_log_path = Path(os.getenv("CHAT_LOG_PATH", str(BACKEND_DIR / "data" / "qa_history.jsonl")))
     feedback_log_path = Path(os.getenv("FEEDBACK_LOG_PATH", str(BACKEND_DIR / "data" / "feedback.jsonl")))
+    subject_base_dir = Path(
+        os.getenv(
+            "SUBJECT_BASE_DIR",
+            str(BACKEND_DIR / "data" / "subjects"),
+        )
+    )
     conversation_db_path = Path(
         os.getenv(
             "CONVERSATION_DB_PATH",
             str(BACKEND_DIR / "data" / "learning_agent.db"),
         )
     )
+
+    def subject_key(self, subject: str | None = None) -> str:
+        if subject is None:
+            return self.default_subject
+        return normalize_subject(subject)
+
+    def knowledge_dir_for(self, subject: str | None = None) -> Path:
+        key = self.subject_key(subject)
+        if key == self.default_subject:
+            path = self.knowledge_dir
+        else:
+            path = self.subject_base_dir / key / "knowledge"
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def rag_index_path_for(self, subject: str | None = None) -> Path:
+        key = self.subject_key(subject)
+        if key == self.default_subject:
+            path = self.rag_index_path
+        else:
+            path = self.subject_base_dir / key / "hybrid_rag.joblib"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def chat_log_path_for(self, subject: str | None = None) -> Path:
+        key = self.subject_key(subject)
+        if key == self.default_subject:
+            path = self.chat_log_path
+        else:
+            path = self.subject_base_dir / key / "qa_history.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
+
+    def feedback_log_path_for(self, subject: str | None = None) -> Path:
+        key = self.subject_key(subject)
+        if key == self.default_subject:
+            path = self.feedback_log_path
+        else:
+            path = self.subject_base_dir / key / "feedback.jsonl"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        return path
 
 
 @lru_cache
@@ -51,4 +103,5 @@ def get_settings() -> Settings:
     settings.chat_log_path.parent.mkdir(parents=True, exist_ok=True)
     settings.feedback_log_path.parent.mkdir(parents=True, exist_ok=True)
     settings.conversation_db_path.parent.mkdir(parents=True, exist_ok=True)
+    settings.subject_base_dir.mkdir(parents=True, exist_ok=True)
     return settings

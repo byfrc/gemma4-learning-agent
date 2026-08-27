@@ -114,7 +114,8 @@ http://服务器IP:8080
 ```text
 服务器项目
 ├── data/lora_data/
-├── backend/data/knowledge/
+├── backend/data/knowledge/                # AI 学科知识库
+├── backend/data/subjects/java/knowledge/  # Java 学科知识库
 └── backend/data/feedback.jsonl
 ```
 
@@ -123,6 +124,7 @@ http://服务器IP:8080
 ```bash
 cp -r /root/autodl-tmp/uploaded/data/lora_data/* /opt/gemma4_learning_agent/data/lora_data/
 cp -r /root/autodl-tmp/uploaded/private_data/knowledge_base/* /opt/gemma4_learning_agent/backend/data/knowledge/
+cp -r /root/autodl-tmp/uploaded/private_data/java_knowledge/* /opt/gemma4_learning_agent/backend/data/subjects/java/knowledge/
 ```
 
 > 重要：`gemma4_e2b_lora/adapter` 不能加载到 Gemma4-12B。LoRA Adapter 与基座模型尺寸、层数、权重形状绑定。你需要在 12B 基座上重新训练新 Adapter。
@@ -270,12 +272,13 @@ systemctl restart gemma4-learning-api
 
 1. 打开首页；
 2. 知识库管理上传课程资料；
-3. 在多轮问答中问“RAG 与 LoRA 在这个项目中分别负责什么？”；
+3. 切换到 AI 学科，在多轮问答中问“RAG 与 LoRA 在这个项目中分别负责什么？”；
 4. 展开证据区，展示本地资料来源；
-5. 追问“那我应该先优化哪个？”；
-6. 切换学习路径生成两周计划；
-7. 切换 AI 出题生成题目、答案和解析；
-8. 提交反馈，说明反馈会整理为 JSONL 并重新训练 Gemma4-12B LoRA。
+5. 切换到 Java 学科，问“Java 的继承和封装有什么区别？”；
+6. 追问“那我应该先优化哪个？”；
+7. 切换学习路径生成两周计划；
+8. 切换 AI 出题生成题目、答案和解析；
+9. 提交反馈，说明反馈会整理为 JSONL 并重新训练 Gemma4-12B LoRA。
 
 ## 12. 当前版本范围
 
@@ -288,3 +291,22 @@ systemctl restart gemma4-learning-api
 - vLLM + LoRA + Nginx + systemd 的部署通路。
 
 当前上传/解析先支持 TXT/MD/CSV。PDF、DOCX、XLSX 可在第二阶段接入解析器；你原本 Streamlit 版本的 CSV/TXT/MD 逻辑已完整保留到后端。
+
+学科切换后，AI 资料默认仍在 `backend/data/knowledge/`，Java 资料默认放到 `backend/data/subjects/java/knowledge/`，两个目录的索引、会话和反馈日志是分开的。
+
+## 13. AutoDL 一键启动
+
+如果你在 AutoDL 上关机后重启，直接执行：
+
+```bash
+bash /root/autodl-tmp/gemma4_learning_agent/app/deploy/06_start_autodl.sh /root/autodl-tmp/gemma4_learning_agent
+```
+
+这个脚本会自动完成：
+
+- 清理旧的 `vllm` 和 `uvicorn` 进程；
+- 同步前端到 `/var/www/gemma4_learning_agent`；
+- 启动 Nginx；
+- 启动 vLLM；
+- 启动 FastAPI；
+- 等待 8000 / 8001 接口就绪。

@@ -7,6 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .subjects import normalize_subject
+
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -27,6 +29,7 @@ def init_db(db_path: Path) -> None:
             """
             CREATE TABLE IF NOT EXISTS conversations (
                 conversation_id TEXT PRIMARY KEY,
+                subject TEXT NOT NULL DEFAULT 'ai',
                 title TEXT NOT NULL,
                 agent_mode TEXT NOT NULL DEFAULT 'qa',
                 created_at TEXT NOT NULL,
@@ -34,6 +37,19 @@ def init_db(db_path: Path) -> None:
             )
             """
         )
+
+        existing_columns = {
+            row["name"]
+            for row in conn.execute("PRAGMA table_info(conversations)").fetchall()
+        }
+
+        if "subject" not in existing_columns:
+            conn.execute(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN subject TEXT NOT NULL DEFAULT 'ai'
+                """
+            )
 
         conn.execute(
             """
@@ -105,7 +121,9 @@ def create_conversation(
     db_path: Path,
     title: str = "新对话",
     agent_mode: str = "qa",
+    subject: str = "ai",
 ) -> dict[str, Any]:
+    subject = normalize_subject(subject)
     conversation_id = str(uuid.uuid4())
     now = now_iso()
 
@@ -113,14 +131,15 @@ def create_conversation(
         conn.execute(
             """
             INSERT INTO conversations (
-                conversation_id, title, agent_mode, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?)
+                conversation_id, subject, title, agent_mode, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?)
             """,
-            (conversation_id, title, agent_mode, now, now),
+            (conversation_id, subject, title, agent_mode, now, now),
         )
 
     return {
         "conversation_id": conversation_id,
+        "subject": subject,
         "title": title,
         "agent_mode": agent_mode,
         "created_at": now,
@@ -130,18 +149,32 @@ def create_conversation(
 
 def list_conversations(
     db_path: Path,
+    subject: str | None = None,
     limit: int = 100,
 ) -> list[dict[str, Any]]:
+    normalized_subject = normalize_subject(subject) if subject else None
     with get_conn(db_path) as conn:
-        rows = conn.execute(
-            """
-            SELECT conversation_id, title, agent_mode, created_at, updated_at
-            FROM conversations
-            ORDER BY updated_at DESC
-            LIMIT ?
-            """,
-            (limit,),
-        ).fetchall()
+        if normalized_subject is None:
+            rows = conn.execute(
+                """
+                SELECT conversation_id, subject, title, agent_mode, created_at, updated_at
+                FROM conversations
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT conversation_id, subject, title, agent_mode, created_at, updated_at
+                FROM conversations
+                WHERE subject = ?
+                ORDER BY updated_at DESC
+                LIMIT ?
+                """,
+                (normalized_subject, limit),
+            ).fetchall()
 
     return [dict(row) for row in rows]
 
@@ -153,7 +186,7 @@ def get_conversation(
     with get_conn(db_path) as conn:
         row = conn.execute(
             """
-            SELECT conversation_id, title, agent_mode, created_at, updated_at
+            SELECT conversation_id, subject, title, agent_mode, created_at, updated_at
             FROM conversations
             WHERE conversation_id = ?
             """,
@@ -309,6 +342,7 @@ def update_conversation(
     conversation_id: str,
     title: str | None = None,
     agent_mode: str | None = None,
+    subject: str | None = None,
 ) -> dict[str, Any] | None:
     current = get_conversation(db_path, conversation_id)
 
@@ -319,16 +353,21 @@ def update_conversation(
     new_agent_mode = (
         agent_mode if agent_mode is not None else current["agent_mode"]
     )
+    new_subject = (
+        normalize_subject(subject)
+        if subject is not None
+        else current.get("subject", "ai")
+    )
     now = now_iso()
 
     with get_conn(db_path) as conn:
         conn.execute(
             """
             UPDATE conversations
-            SET title = ?, agent_mode = ?, updated_at = ?
+            SET subject = ?, title = ?, agent_mode = ?, updated_at = ?
             WHERE conversation_id = ?
             """,
-            (new_title, new_agent_mode, now, conversation_id),
+            (new_subject, new_title, new_agent_mode, now, conversation_id),
         )
 
     return get_conversation(db_path, conversation_id)
@@ -459,6 +498,7 @@ def list_selected_training_samples(
                 f.created_at AS feedback_created_at,
                 f.updated_at AS feedback_updated_at,
                 c.title AS conversation_title,
+                c.subject,
                 c.agent_mode,
                 m.content AS assistant_answer,
                 m.model_used

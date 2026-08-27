@@ -3,6 +3,7 @@ from __future__ import annotations
 import httpx
 
 from .config import Settings
+from .subjects import get_subject_spec, normalize_subject
 
 
 AI_TUTOR_SYSTEM_PROMPT = """你是一个面向学生的本地化 AI 学习助教，不是普通聊天机器人。
@@ -89,22 +90,40 @@ PROJECT_CONTEXT = """【当前项目部署事实】
 
 当前已上线并正在运行的能力：
 1. 前端通过 Nginx 对外提供页面。
-2. FastAPI 提供 /api/chat、知识库上传、知识库状态等接口。
+2. FastAPI 提供 /api/chat、学科切换、知识库上传、知识库状态等接口。
 3. RAG 已启用：用户资料上传后会被切分、建立索引；用户提问时，系统检索相关文本块，并将证据拼接到提示词中。
-4. 本地模型为 Gemma 4 12B，通过 vLLM 在 8001 端口提供 OpenAI 兼容接口。
-5. 当前推理服务加载的是 Gemma 4 基座模型。
+4. 当前支持 AI / Java 两个学科，知识库、会话和反馈日志按学科分开管理。
+5. 本地模型为 Gemma 4 12B，通过 vLLM 在 8001 端口提供 OpenAI 兼容接口。
+6. 当前推理服务默认加载的是 Gemma 4 基座模型。
 
 当前尚未上线或尚未启用的能力：
 1. LoRA Adapter 尚未挂载到 vLLM 推理服务。
 2. 当前回答风格主要由系统提示词控制，不是由 LoRA 微调控制。
-3. 后端会记录 qa_history.jsonl，但前端尚未实现历史会话读取与恢复。
+3. 目前仍以单机私有部署为主，尚未加入多人协作、权限分级和云端同步。
 
 回答涉及“本项目”“当前系统”“这个平台”“这里的 RAG”“这里的 LoRA”时，必须严格依据上述事实回答。
 不得把尚未启用的 LoRA、长期记忆、自动评估、模型微调等能力说成已经上线。
 """
 
+SUBJECT_CONTEXT = {
+    "ai": """【当前学科：人工智能】
+- 优先解释人工智能概念、机器学习、深度学习、RAG、LoRA、Agent、提示词和学习规划。
+- 示例优先使用 AI 学习、数据处理、模型训练、知识库问答、课程项目等场景。
+- 如果用户问到代码，也优先结合 Python 或 AI 项目中的代码实践来解释。""",
+    "java": """【当前学科：Java】
+- 优先解释 Java 语法、面向对象、集合、异常处理、输入输出、多线程、JVM、常见框架和工程实践。
+- 示例优先使用 Java 控制台程序、类设计、调试、单元测试和项目开发等场景。
+- 如果用户问到学习路径，优先按“基础语法 → 面向对象 → 集合与异常 → 泛型与多线程 → IO 与 JVM → Web/项目实践”组织。""",
+}
 
-def build_messages(history: list[dict], evidence: str, agent_mode: str,language: str = "zh") -> list[dict]:
+
+def build_messages(
+    history: list[dict],
+    evidence: str,
+    agent_mode: str,
+    language: str = "zh",
+    subject: str = "ai",
+) -> list[dict]:
     current_question = next(
         (
             item["content"]
@@ -113,6 +132,8 @@ def build_messages(history: list[dict], evidence: str, agent_mode: str,language:
         ),
         "",
     )
+    subject_key = normalize_subject(subject)
+    subject_spec = get_subject_spec(subject_key)
     if language == "en":
 
         language_instruction = """
@@ -141,13 +162,28 @@ def build_messages(history: list[dict], evidence: str, agent_mode: str,language:
         "当前系统",
         "这个系统",
         "这个平台",
+        "学习智能体",
         "学习助手",
+        "前端",
+        "后端",
+        "部署",
+        "学科切换",
+        "知识库管理",
+        "知识库分开",
+        "会话历史",
+        "会话管理",
+        "反馈记录",
+        "模型服务",
         "这里的rag",
         "这里的lora",
         "rag和lora",
-        "部署",
-        "前端",
-        "后端",
+        "frontend",
+        "backend",
+        "deployment",
+        "deploy",
+        "nginx",
+        "sqlite",
+        "fastapi",
         "vllm",
         "gemma",
     ]
@@ -175,16 +211,31 @@ def build_messages(history: list[dict], evidence: str, agent_mode: str,language:
 若本轮知识库没有直接依据，必须明确说明“当前知识库中没有足够的直接依据”，再给出一般性解释。
 """
 
+    subject_instruction = f"""【当前学科信息】
+- 学科标识：{subject_spec.key}
+- 学科名称：{subject_spec.label_zh if language != "en" else subject_spec.label_en}
+- 学科说明：{subject_spec.description_zh if language != "en" else subject_spec.description_en}
+
+{SUBJECT_CONTEXT.get(subject_key, SUBJECT_CONTEXT["ai"])}
+"""
+
+    system_parts = [
+        AI_TUTOR_SYSTEM_PROMPT,
+        language_instruction,
+        subject_instruction,
+        AGENT_PROMPTS.get(agent_mode, AGENT_PROMPTS["qa"]),
+    ]
+
+    if is_project_question:
+        system_parts.extend([PROJECT_CONTEXT, project_instruction])
+    else:
+        system_parts.append(project_instruction)
+
+    system_parts.append(f"【本轮 RAG 证据】\n{evidence}")
+
     system = {
         "role": "system",
-        "content": (
-            f"{AI_TUTOR_SYSTEM_PROMPT}\n\n"
-            f"{language_instruction}\n\n"
-            f"{AGENT_PROMPTS.get(agent_mode, AGENT_PROMPTS['qa'])}\n\n"
-            f"{PROJECT_CONTEXT}\n\n"
-            f"{project_instruction}\n\n"
-            f"【本轮 RAG 证据】\n{evidence}"
-        ),
+        "content": "\n\n".join(system_parts),
     }
 
     cleaned = [

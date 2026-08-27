@@ -3,6 +3,8 @@ from __future__ import annotations
 from typing import Any, Literal
 from pydantic import BaseModel, Field
 
+SubjectKey = Literal["ai", "java"]
+
 
 class ChatMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
@@ -13,6 +15,7 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=24)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=100)
     agent_mode: Literal["qa", "learning_path", "quiz", "coach"] = "qa"
+    subject: SubjectKey = "ai"
     
     # 前端语言模式
     language: Literal["zh", "en"] = "zh"
@@ -36,6 +39,7 @@ class ChatResponse(BaseModel):
     model_used: str
     evidence: list[Evidence]
     title: str
+    subject: SubjectKey = "ai"
     conversation_id: str | None = None
     assistant_message_id: str | None = None
 
@@ -44,11 +48,13 @@ class FeedbackRequest(BaseModel):
     answer: str = Field(min_length=1)
     rating: int = Field(ge=1, le=5)
     feedback: str = Field(default="", max_length=6000)
+    subject: SubjectKey = "ai"
     agent_mode: str = "qa"
     model_used: str = ""
 
 
 class KnowledgeStatus(BaseModel):
+    subject: SubjectKey = "ai"
     file_count: int
     chunk_count: int
     sources: list[str]
@@ -56,6 +62,7 @@ class KnowledgeStatus(BaseModel):
 class ConversationCreateRequest(BaseModel):
     title: str = Field(default="新对话", min_length=1, max_length=120)
     agent_mode: Literal["qa", "learning_path", "quiz", "coach"] = "qa"
+    subject: SubjectKey = "ai"
 
 
 class ConversationRenameRequest(BaseModel):
@@ -65,10 +72,18 @@ class ConversationRenameRequest(BaseModel):
 
 class ConversationSummary(BaseModel):
     conversation_id: str
+    subject: SubjectKey
     title: str
     agent_mode: str
     created_at: str
     updated_at: str
+
+class SubjectInfo(BaseModel):
+    subject: SubjectKey
+    label_zh: str
+    label_en: str
+    description_zh: str
+    description_en: str
 
 class MessageFeedbackSaveRequest(BaseModel):
     rating: int = Field(ge=1, le=5)

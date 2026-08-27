@@ -43,19 +43,23 @@
       <header class="topbar">
         <button class="mobile-menu" id="mobileMenuBtn" type="button" aria-label="打开侧边栏">☰</button>
         <div class="page-title"><span class="eyebrow">GEMMA4 LEARNING WORKSPACE</span><h1 data-i18n="workspace_title">私域学习智能体工作台</h1></div>
-    <div class="top-actions">
-    <div class="lang-switch">
-        <button id="zhBtn" class="active">中文
-        </button>
-        
-        <button id="enBtn">English
-        </button>
-    </div>
-    <button id="knowledgeBtn" class="outline">
-    <span>▣</span>知识库管理</button>
-    <div class="avatar">学
-    </div>
-    </div>
+        <div class="top-actions">
+          <div class="subject-switch" role="tablist" aria-label="学科切换">
+            <button id="subjectAiBtn" class="subject-btn active" type="button" data-subject="ai" aria-pressed="true">AI</button>
+            <button id="subjectJavaBtn" class="subject-btn" type="button" data-subject="java" aria-pressed="false">Java</button>
+          </div>
+          <div class="lang-switch">
+            <button id="zhBtn" class="active">中文
+            </button>
+
+            <button id="enBtn">English
+            </button>
+          </div>
+          <button id="knowledgeBtn" class="outline">
+          <span>▣</span>知识库管理</button>
+          <div class="avatar">学
+          </div>
+        </div>
           
       </header>
 
@@ -117,7 +121,17 @@
   </div>
 
   <dialog id="knowledgeDialog">
-    <div class="dialog-head"><div><span class="eyebrow">PRIVATE KNOWLEDGE BASE</span><h2 data-i18n="knowledge_title">知识库管理</h2><p data-i18n="knowledge_desc">上传后系统会自动切块并建立混合检索索引。</p></div><button id="closeKnowledgeBtn" type="button" aria-label="关闭">×</button></div>
+    <div class="dialog-head">
+      <div>
+        <span class="eyebrow">PRIVATE KNOWLEDGE BASE</span>
+        <h2 data-i18n="knowledge_title">知识库管理</h2>
+        <p data-i18n="knowledge_desc">上传后系统会自动切块并建立混合检索索引。</p>
+      </div>
+      <div class="dialog-head-actions">
+        <div class="dialog-subject" id="knowledgeSubjectLabel">AI 知识库</div>
+        <button id="closeKnowledgeBtn" type="button" aria-label="关闭">×</button>
+      </div>
+    </div>
     <form id="uploadForm" class="upload">
       <input id="knowledgeFile" type="file" accept=".txt,.md,.csv" required>
       <div class="upload-copy"><b data-i18n="select_material">选择课程资料</b><small data-i18n="upload_desc">当前支持 TXT、MD、CSV，单个文件不超过 30 MB。</small></div>

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import shutil
 from pathlib import Path
 
 from fastapi import FastAPI, File, HTTPException, Response, UploadFile
@@ -21,7 +20,8 @@ from .conversation_store import (
     save_message_feedback,
 )
 from .providers import build_messages, generate
-from .rag import HybridRAGEngine
+from .subject_rag import SubjectRAGManager
+from .subjects import get_subject_spec, list_subject_specs, normalize_subject
 from .schemas import (
     ChatRequest,
     ChatResponse,
@@ -34,18 +34,14 @@ from .schemas import (
     KnowledgeStatus,
     MessageFeedbackResponse,
     MessageFeedbackSaveRequest,
+    SubjectInfo,
 )
 from .storage import append_jsonl
 
 settings = get_settings()
 init_db(settings.conversation_db_path)
 
-rag = HybridRAGEngine(
-    knowledge_dir=settings.knowledge_dir,
-    index_path=settings.rag_index_path,
-    chunk_size=settings.rag_chunk_size,
-    overlap=settings.rag_chunk_overlap,
-)
+rag_manager = SubjectRAGManager(settings)
 
 app = FastAPI(title=settings.app_name, version="1.0.0")
 app.add_middleware(
@@ -56,19 +52,38 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/api/subjects", response_model=list[SubjectInfo])
+async def get_subjects():
+    return [
+        SubjectInfo(
+            subject=spec.key,
+            label_zh=spec.label_zh,
+            label_en=spec.label_en,
+            description_zh=spec.description_zh,
+            description_en=spec.description_en,
+        )
+        for spec in list_subject_specs()
+    ]
+
 @app.post("/api/conversations", response_model=ConversationSummary)
 async def create_new_conversation(payload: ConversationCreateRequest):
+    subject = normalize_subject(payload.subject)
     conversation = create_conversation(
         settings.conversation_db_path,
         title=payload.title,
         agent_mode=payload.agent_mode,
+        subject=subject,
     )
     return ConversationSummary(**conversation)
 
 
 @app.get("/api/conversations", response_model=list[ConversationSummary])
-async def get_conversation_list():
-    conversations = list_conversations(settings.conversation_db_path)
+async def get_conversation_list(subject: str | None = None):
+    conversations = list_conversations(
+        settings.conversation_db_path,
+        subject=subject,
+    )
     return [ConversationSummary(**item) for item in conversations]
 
 
@@ -180,6 +195,7 @@ async def export_conversation(
         "## 会话信息",
         "",
         f"- 会话 ID：`{conversation_id}`",
+        f"- 学科：`{conversation['subject']}`",
         f"- 智能体模式：`{conversation['agent_mode']}`",
         f"- 创建时间：{conversation['created_at']}",
         f"- 最后更新时间：{conversation['updated_at']}",
@@ -290,10 +306,14 @@ async def get_quality_feedback(message_id: str):
 
 
 @app.get("/api/health")
-async def health():
-    files, chunks, _ = rag.status()
+async def health(subject: str | None = None):
+    subject_key = normalize_subject(subject)
+    files, chunks, _ = rag_manager.status(subject_key)
+    spec = get_subject_spec(subject_key)
     return {
         "status": "ok",
+        "subject": subject_key,
+        "subject_label": spec.label_zh,
         "provider": settings.model_provider,
         "model": settings.vllm_model if settings.model_provider == "openai_compatible" else settings.ollama_model,
         "knowledge_files": files,
@@ -302,13 +322,23 @@ async def health():
 
 
 @app.get("/api/knowledge/status", response_model=KnowledgeStatus)
-async def knowledge_status():
-    file_count, chunk_count, sources = rag.status()
-    return KnowledgeStatus(file_count=file_count, chunk_count=chunk_count, sources=sources)
+async def knowledge_status(subject: str | None = None):
+    subject_key = normalize_subject(subject)
+    file_count, chunk_count, sources = rag_manager.status(subject_key)
+    return KnowledgeStatus(
+        subject=subject_key,
+        file_count=file_count,
+        chunk_count=chunk_count,
+        sources=sources,
+    )
 
 
 @app.post("/api/knowledge/upload")
-async def upload_knowledge(file: UploadFile = File(...)):
+async def upload_knowledge(
+    file: UploadFile = File(...),
+    subject: str = settings.default_subject,
+):
+    subject_key = normalize_subject(subject)
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in {".txt", ".md", ".csv"}:
         raise HTTPException(status_code=400, detail="当前部署版支持 TXT、MD、CSV；PDF/DOCX 可作为第二阶段接入解析器。")
@@ -318,13 +348,14 @@ async def upload_knowledge(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail=f"文件超过 {settings.max_upload_mb}MB 限制。")
 
     safe_name = Path(file.filename or "knowledge.txt").name
-    target = settings.knowledge_dir / safe_name
+    target = settings.knowledge_dir_for(subject_key) / safe_name
     target.write_bytes(payload)
-    rag.rebuild()
+    rag_manager.rebuild(subject_key)
 
-    files, chunks, sources = rag.status()
+    files, chunks, sources = rag_manager.status(subject_key)
     return {
         "message": "上传成功，已完成知识库重建。",
+        "subject": subject_key,
         "file_count": files,
         "chunk_count": chunks,
         "sources": sources,
@@ -352,6 +383,7 @@ async def chat(payload: ChatRequest):
 
     conversation_id = payload.conversation_id
     conversation = None
+    subject = normalize_subject(payload.subject)
 
     # 新版：携带 conversation_id 时，从 SQLite 恢复真实历史。
     if conversation_id:
@@ -362,6 +394,8 @@ async def chat(payload: ChatRequest):
 
         if conversation is None:
             raise HTTPException(status_code=404, detail="会话不存在。")
+
+        subject = normalize_subject(conversation.get("subject"))
 
         stored_messages = get_messages(
             settings.conversation_db_path,
@@ -395,6 +429,7 @@ async def chat(payload: ChatRequest):
     else:
         history = incoming_history
 
+    rag = rag_manager.get(subject)
     evidence_rows = (
         rag.retrieve(current_question, payload.top_k)
         if payload.use_rag and payload.top_k > 0
@@ -406,6 +441,7 @@ async def chat(payload: ChatRequest):
         rag.format_evidence(evidence_rows),
         payload.agent_mode,
         payload.language,
+        subject,
     )
 
     try:
@@ -466,8 +502,9 @@ async def chat(payload: ChatRequest):
     # 旧版：继续保留 JSONL 日志，保证原前端功能不受影响。
     else:
         append_jsonl(
-            settings.chat_log_path,
+            settings.chat_log_path_for(subject),
             {
+                "subject": subject,
                 "agent_mode": payload.agent_mode,
                 "messages": history,
                 "answer": answer,
@@ -481,6 +518,7 @@ async def chat(payload: ChatRequest):
         model_used=model_used,
         evidence=evidence,
         title=title,
+        subject=subject,
         conversation_id=conversation_id,
         assistant_message_id=(
             saved_assistant_message["message_id"]
@@ -491,5 +529,6 @@ async def chat(payload: ChatRequest):
 
 @app.post("/api/feedback")
 async def feedback(payload: FeedbackRequest):
-    append_jsonl(settings.feedback_log_path, payload.model_dump())
+    subject = normalize_subject(payload.subject)
+    append_jsonl(settings.feedback_log_path_for(subject), payload.model_dump())
     return {"message": "反馈已保存，可用于后续整理为 LoRA / QLoRA 训练样本。"}

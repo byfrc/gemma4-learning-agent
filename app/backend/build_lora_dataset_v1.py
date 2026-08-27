@@ -52,6 +52,7 @@ for conv in conversations:
             ],
             "meta": {
                 "rating": rating,
+                "subject": conv.get("subject", "ai"),
                 "agent_mode": conv.get("agent_mode", "qa"),
                 "conversation_id": conv["conversation_id"]
             }

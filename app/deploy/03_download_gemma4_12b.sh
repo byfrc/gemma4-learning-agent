@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 PROJECT_DIR="${1:-/opt/gemma4_learning_agent}"
+if [ ! -d "${PROJECT_DIR}/backend" ] && [ -d "${PROJECT_DIR}/app/backend" ]; then
+  PROJECT_DIR="${PROJECT_DIR}/app"
+fi
 source /root/miniconda3/etc/profile.d/conda.sh
 conda activate gemma4_vllm
 mkdir -p "${PROJECT_DIR}/models/gemma"
