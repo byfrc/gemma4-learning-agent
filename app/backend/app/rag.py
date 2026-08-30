@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +10,13 @@ import numpy as np
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.metrics.pairwise import cosine_similarity
 
+from .document_parser import (
+    SUPPORTED_DOCUMENT_SUFFIXES,
+    DocumentParser,
+    ParsedSection,
+    normalize_text,
+)
+
 
 @dataclass
 class RetrievedChunk:
@@ -19,13 +25,8 @@ class RetrievedChunk:
     source_file: str
     text: str
     score: float
-
-
-def normalize_text(text: str) -> str:
-    text = str(text or "")
-    text = re.sub(r"\s+", " ", text)
-    text = re.sub(r"[\u200b\ufeff]", "", text)
-    return text.strip()
+    location: str | None = None
+    document_type: str | None = None
 
 
 def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
@@ -59,11 +60,29 @@ class HybridRAGEngine:
     与 Streamlit 解耦，作为 FastAPI 后端长驻服务使用。
     """
 
-    def __init__(self, knowledge_dir: Path, index_path: Path, chunk_size: int = 500, overlap: int = 90):
+    def __init__(
+        self,
+        knowledge_dir: Path,
+        index_path: Path,
+        chunk_size: int = 500,
+        overlap: int = 90,
+        ocr_mode: str = "auto",
+        ocr_lang: str = "ch",
+        ocr_device: str = "cpu",
+        office_converter: str = "soffice",
+        office_timeout_seconds: int = 120,
+    ):
         self.knowledge_dir = knowledge_dir
         self.index_path = index_path
         self.chunk_size = chunk_size
         self.overlap = overlap
+        self.parser = DocumentParser(
+            ocr_mode=ocr_mode,
+            ocr_lang=ocr_lang,
+            ocr_device=ocr_device,
+            office_converter=office_converter,
+            office_timeout_seconds=office_timeout_seconds,
+        )
         self.lock = RLock()
         self.chunks: list[dict] = []
         self.word_vectorizer = None
@@ -73,50 +92,34 @@ class HybridRAGEngine:
         self.load_or_rebuild()
 
     def _read_file(self, path: Path) -> str:
-        suffix = path.suffix.lower()
-        if suffix in {".md", ".txt"}:
-            raw = path.read_bytes()
-            for encoding in ["utf-8-sig", "utf-8", "gb18030", "gbk"]:
-                try:
-                    return raw.decode(encoding)
-                except UnicodeDecodeError:
-                    pass
-            return raw.decode("utf-8", errors="ignore")
+        return "\n".join(section.text for section in self.parser.parse(path))
 
-        if suffix == ".csv":
-            rows = []
-            raw = path.read_bytes()
-            decoded = None
-            for encoding in ["utf-8-sig", "utf-8", "gb18030", "gbk"]:
-                try:
-                    decoded = raw.decode(encoding)
-                    break
-                except UnicodeDecodeError:
-                    pass
-            if decoded is None:
-                decoded = raw.decode("utf-8", errors="ignore")
-            for row in csv.reader(decoded.splitlines()):
-                text = "；".join(f"字段{i+1}：{cell.strip()}" for i, cell in enumerate(row) if cell.strip())
-                if text:
-                    rows.append(text)
-            return "\n".join(rows)
-
-        return ""
+    def parse_file(self, path: Path) -> list[ParsedSection]:
+        return self.parser.parse(path)
 
     def rebuild(self) -> None:
         with self.lock:
             rows = []
             for path in sorted(self.knowledge_dir.glob("*")):
-                if path.suffix.lower() not in {".md", ".txt", ".csv"}:
+                if path.suffix.lower() not in SUPPORTED_DOCUMENT_SUFFIXES:
                     continue
-                raw = self._read_file(path)
-                for idx, piece in enumerate(chunk_text(raw, self.chunk_size, self.overlap)):
-                    rows.append({
-                        "chunk_id": f"{path.stem}_{idx:04d}",
-                        "doc_id": path.stem,
-                        "source_file": path.name,
-                        "text": piece,
-                    })
+                sections = self.parser.parse(path)
+                for section_index, section in enumerate(sections):
+                    for chunk_index, piece in enumerate(
+                        chunk_text(section.text, self.chunk_size, self.overlap)
+                    ):
+                        rows.append({
+                            "chunk_id": (
+                                f"{path.stem}_{section_index:04d}_{chunk_index:04d}"
+                            ),
+                            "doc_id": path.stem,
+                            "source_file": path.name,
+                            "text": piece,
+                            "location": section.location,
+                            "page": section.page,
+                            "slide": section.slide,
+                            "document_type": section.document_type,
+                        })
 
             self.chunks = rows
             if not rows:
@@ -199,6 +202,8 @@ class HybridRAGEngine:
                     source_file=item["source_file"],
                     text=item["text"],
                     score=round(float(scores[index]), 4),
+                    location=item.get("location"),
+                    document_type=item.get("document_type"),
                 ))
                 selected_tokens.append(tokens)
                 if len(selected) >= top_k:
@@ -210,6 +215,8 @@ class HybridRAGEngine:
         if not items:
             return "无可用的本地知识库证据。"
         return "\n\n".join(
-            f"【证据{i}｜来源：{item.source_file}｜相关度：{item.score:.3f}】\n{item.text}"
+            f"【证据{i}｜来源：{item.source_file}"
+            f"{f'｜位置：{item.location}' if item.location else ''}"
+            f"｜相关度：{item.score:.3f}】\n{item.text}"
             for i, item in enumerate(items, 1)
         )

@@ -12,10 +12,7 @@ const state = {
 
   language:"zh",
 
-  activeBySubject: {
-    ai: null,
-    java: null,
-  },
+  auth: null,
 
   messageCache: new Map()
 
@@ -119,7 +116,7 @@ const LANGUAGE_TEXT = {
         "选择课程资料",
 
     upload_desc:
-        "当前支持 TXT、MD、CSV，单个文件不超过 30 MB。",
+        "支持 TXT、MD、CSV、PDF、PPT、PPTX，单个文件不超过 30 MB。",
 
     upload_button:
         "上传并构建索引",
@@ -129,6 +126,13 @@ const LANGUAGE_TEXT = {
 
     source_desc:
         "上传新文件会自动刷新索引",
+
+    knowledge_readonly:
+        "学生账号仅可查看资料，知识库上传由管理员完成。",
+
+    source_readonly:
+        "资料由管理员维护",
+
     send:
         "发送",
 
@@ -267,7 +271,7 @@ const LANGUAGE_TEXT = {
         "Select Learning Materials",
 
     upload_desc:
-        "Currently supports TXT, MD and CSV files, up to 30 MB.",
+        "Supports TXT, MD, CSV, PDF, PPT and PPTX files, up to 30 MB each.",
 
     upload_button:
         "Upload and Build Index",
@@ -277,6 +281,12 @@ const LANGUAGE_TEXT = {
 
     source_desc:
         "Uploading new files will refresh the index automatically",
+
+    knowledge_readonly:
+        "Student accounts can view materials only. Knowledge base uploads are managed by administrators.",
+
+    source_readonly:
+        "Materials are maintained by administrators",
 
     send:
         "Send",
@@ -396,20 +406,11 @@ function getSubjectCopy(subject = state.subject, language = state.language) {
 
 function updateSubjectChrome() {
   const copy = getSubjectCopy();
-  const subjectButtons = document.querySelectorAll(".subject-btn");
-
-  subjectButtons.forEach((button) => {
-    const subject = button.dataset.subject;
-    const active = subject === state.subject;
-    const buttonCopy =
-      (SUBJECT_COPY[state.language] || SUBJECT_COPY.zh)[subject] ||
-      (SUBJECT_COPY[state.language] || SUBJECT_COPY.zh).ai;
-
-    button.classList.toggle("active", active);
-    button.setAttribute("aria-pressed", active ? "true" : "false");
-    button.textContent = buttonCopy.switch_label;
-    button.title = `${buttonCopy.full_name} ${state.language === "zh" ? "课程" : "course"}`;
-  });
+  const subjectBadge = $("#currentSubjectBadge");
+  if (subjectBadge) {
+    subjectBadge.textContent = copy.full_name;
+    subjectBadge.title = copy.full_name;
+  }
 
   const knowledgeButton = $("#knowledgeBtn");
   if (knowledgeButton) {
@@ -437,9 +438,35 @@ function updateSubjectChrome() {
     knowledgeSubjectLabel.textContent = copy.knowledge_label;
   }
 
-  const subjectBadge = $("#subjectBadge");
-  if (subjectBadge) {
-    subjectBadge.textContent = copy.knowledge_label;
+  const userAvatar = $("#userAvatar");
+  if (userAvatar && state.auth?.username) {
+    userAvatar.textContent = state.auth.username.slice(0, 1).toUpperCase();
+    userAvatar.title = `${state.auth.username} · ${
+      state.auth.role === "admin" ? "管理员" : "学生"
+    }`;
+  }
+
+  updateKnowledgeAccess();
+}
+
+function updateKnowledgeAccess() {
+  const isAdmin = state.auth?.role === "admin";
+  const languagePack = LANGUAGE_TEXT[state.language] || LANGUAGE_TEXT.zh;
+  const uploadForm = $("#uploadForm");
+  const readOnlyNotice = $("#knowledgeReadOnly");
+  const sourceDescription = $("#sourceDesc");
+
+  if (uploadForm) {
+    uploadForm.classList.toggle("is-hidden", !isAdmin);
+  }
+  if (readOnlyNotice) {
+    readOnlyNotice.textContent = languagePack.knowledge_readonly;
+    readOnlyNotice.classList.toggle("is-hidden", isAdmin);
+  }
+  if (sourceDescription) {
+    sourceDescription.textContent = isAdmin
+      ? languagePack.source_desc
+      : languagePack.source_readonly;
   }
 }
 
@@ -455,30 +482,215 @@ function updateComposerPlaceholder() {
   textarea.placeholder = placeholders[state.mode] || placeholders.qa || "";
 }
 
-function rememberActiveConversation(conversationId) {
-  if (!state.subject) {
-    return;
-  }
-
-  state.activeBySubject[state.subject] = conversationId;
-}
-
 function cacheConversation(chat) {
   if (!chat?.id) {
     return;
   }
 
   state.messageCache.set(chat.id, chat.messages || []);
-  if (chat.subject) {
-    state.activeBySubject[chat.subject] = chat.id;
-  } else {
-    rememberActiveConversation(chat.id);
-  }
 }
 
 const $ = (selector) => document.querySelector(selector);
 const messagesBox = $("#chatMessages");
 const historyBox = $("#historyList");
+
+function getStoredAuth() {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem("gemma4_auth") || "null");
+    if (!saved?.token || !saved?.subject || !saved?.username) {
+      return null;
+    }
+    return saved;
+  } catch {
+    return null;
+  }
+}
+
+function showLogin(message = "") {
+  $("#appShell").classList.add("is-hidden");
+  $("#loginScreen").classList.remove("is-hidden");
+  setAuthMode("login");
+  $("#loginError").textContent = message;
+}
+
+function showWorkspace() {
+  $("#loginScreen").classList.add("is-hidden");
+  $("#appShell").classList.remove("is-hidden");
+  updateSubjectChrome();
+  updateKnowledgeAccess();
+  updateComposerPlaceholder();
+  updateModeTitle();
+}
+
+function setAuth(data) {
+  state.auth = {
+    token: data.access_token,
+    username: data.username,
+    role: data.role || "student",
+    subject: data.subject,
+    expires_at: data.expires_at,
+  };
+  state.subject = data.subject;
+  sessionStorage.setItem("gemma4_auth", JSON.stringify(state.auth));
+}
+
+async function refreshAuthProfile() {
+  const response = await apiFetch("/auth/me");
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) {
+    throw new Error(data.detail || "登录状态校验失败。");
+  }
+
+  state.auth = {
+    ...state.auth,
+    username: data.username,
+    role: data.role || "student",
+  };
+  sessionStorage.setItem("gemma4_auth", JSON.stringify(state.auth));
+}
+
+function clearAuth(message = "") {
+  state.auth = null;
+  state.active = null;
+  state.chats = [];
+  state.messageCache.clear();
+  sessionStorage.removeItem("gemma4_auth");
+  showLogin(message);
+}
+
+async function apiFetch(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (state.auth?.token) {
+    headers.set("Authorization", `Bearer ${state.auth.token}`);
+  }
+
+  const response = await fetch(`${API}${path}`, {
+    ...options,
+    headers,
+  });
+
+  if (response.status === 401 && state.auth) {
+    clearAuth("登录已失效，请重新登录。");
+  }
+
+  return response;
+}
+
+async function submitLogin(event) {
+  event.preventDefault();
+
+  const username = $("#loginUsername").value.trim();
+  const password = $("#loginPassword").value;
+  const subject = document.querySelector(
+    'input[name="subject"]:checked',
+  )?.value || "ai";
+  const button = $("#loginBtn");
+
+  if (!username || !password) {
+    showLogin("请输入账号和密码。");
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "登录中…";
+  $("#loginError").textContent = "";
+
+  try {
+    const response = await fetch(`${API}/auth/login`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ username, password, subject }),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.detail || "登录失败。");
+    }
+
+    setAuth(data);
+    showWorkspace();
+    await boot();
+  } catch (error) {
+    showLogin(error.message);
+  } finally {
+    button.disabled = false;
+    button.textContent = "登录并进入学习空间 →";
+  }
+}
+
+function setAuthMode(mode) {
+  const registering = mode === "register";
+  $("#loginForm").classList.toggle("is-hidden", registering);
+  $("#registerForm").classList.toggle("is-hidden", !registering);
+  $("#showRegisterBtn").classList.toggle("is-hidden", registering);
+  $("#authTitle").textContent = registering ? "注册学习平台" : "登录学习平台";
+  $("#authDescription").textContent = registering
+    ? "创建账号后即可登录，并在登录时选择学习学科。"
+    : "使用账号密码登录，并选择本次学习的课程方向。";
+  $("#loginError").textContent = "";
+  $("#registerError").textContent = "";
+}
+
+async function submitRegistration(event) {
+  event.preventDefault();
+
+  const username = $("#registerUsername").value.trim();
+  const password = $("#registerPassword").value;
+  const passwordConfirm = $("#registerPasswordConfirm").value;
+  const button = $("#registerBtn");
+
+  if (password !== passwordConfirm) {
+    $("#registerError").textContent = "两次输入的密码不一致。";
+    return;
+  }
+
+  button.disabled = true;
+  button.textContent = "注册中…";
+  $("#registerError").textContent = "";
+
+  try {
+    const response = await fetch(`${API}/auth/register`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        username,
+        password,
+        password_confirm: passwordConfirm,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.detail || "注册失败。");
+    }
+
+    $("#registerForm").reset();
+    $("#loginUsername").value = data.username;
+    setAuthMode("login");
+    $("#loginError").textContent = data.message || "注册成功，请登录。";
+  } catch (error) {
+    $("#registerError").textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = "注册账号 →";
+  }
+}
+
+function logout() {
+  clearAuth();
+  $("#loginForm").reset();
+  $("#registerForm").reset();
+  document.querySelector('input[name="subject"][value="ai"]').checked = true;
+  state.subject = "ai";
+  state.mode = "qa";
+  setMode("qa");
+  changeLanguage("zh");
+}
 
 
 /*语言切换函数*/
@@ -665,9 +877,13 @@ function renderHistory() {
     exportButton.title = "导出 Markdown";
     exportButton.setAttribute("aria-label", "导出 Markdown");
 
-    exportButton.onclick = (event) => {
+    exportButton.onclick = async (event) => {
       event.stopPropagation();
-      downloadConversation(chat, "markdown");
+      try {
+        await downloadConversation(chat, "markdown");
+      } catch (error) {
+        alert(`导出失败：${error.message}`);
+      }
     };
 
 
@@ -703,7 +919,7 @@ async function renameConversation(chat) {
     throw new Error("会话名称不能为空。");
   }
 
-  const response = await fetch(`${API}/conversations/${chat.id}`, {
+  const response = await apiFetch(`/conversations/${chat.id}`, {
     method: "PATCH",
     headers: {
       "Content-Type": "application/json",
@@ -726,16 +942,27 @@ async function renameConversation(chat) {
 }
 
 
-function downloadConversation(chat, format = "markdown") {
+async function downloadConversation(chat, format = "markdown") {
   const extension = format === "json" ? "json" : "md";
+  const response = await apiFetch(
+    `/conversations/${chat.id}/export?format=${format}`,
+  );
 
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.detail || "服务器未能导出会话。");
+  }
+
+  const blob = await response.blob();
+  const objectUrl = URL.createObjectURL(blob);
   const link = document.createElement("a");
-  link.href = `${API}/conversations/${chat.id}/export?format=${format}`;
+  link.href = objectUrl;
   link.download = `conversation_${chat.id}.${extension}`;
 
   document.body.appendChild(link);
   link.click();
   link.remove();
+  URL.revokeObjectURL(objectUrl);
 }
 
 
@@ -752,7 +979,7 @@ async function removeConversation(chat) {
 
   const wasActive = state.active === chat.id;
 
-  const response = await fetch(`${API}/conversations/${chat.id}`, {
+  const response = await apiFetch(`/conversations/${chat.id}`, {
     method: "DELETE",
   });
 
@@ -764,10 +991,6 @@ async function removeConversation(chat) {
 
   state.chats = state.chats.filter((item) => item.id !== chat.id);
   state.messageCache.delete(chat.id);
-
-  if (state.activeBySubject[chat.subject] === chat.id) {
-    state.activeBySubject[chat.subject] = null;
-  }
 
   if (wasActive) {
     state.active = null;
@@ -796,7 +1019,9 @@ function evidenceHtml(items = []) {
           (item) => `
             <div class="evidence">
               <small>
-                ${esc(item.source_file)} · score=${item.score}
+                ${esc(item.source_file)}
+                ${item.location ? ` · ${esc(item.location)}` : ""}
+                · score=${item.score}
               </small>
               ${esc(item.text)}
             </div>
@@ -897,8 +1122,8 @@ async function saveQualityFeedback(
   feedback,
   trainingSelected,
 ) {
-  const response = await fetch(
-    `${API}/messages/${messageId}/feedback`,
+  const response = await apiFetch(
+    `/messages/${messageId}/feedback`,
     {
       method: "POST",
       headers: {
@@ -1132,7 +1357,9 @@ function addMessage(message) {
 }
 
 async function loadConversationList(subject = state.subject) {
-  const response = await fetch(`${API}/conversations?subject=${encodeURIComponent(subject)}`);
+  const response = await apiFetch(
+    `/conversations?subject=${encodeURIComponent(subject)}`,
+  );
 
   if (!response.ok) {
     throw new Error("无法读取历史会话列表。");
@@ -1158,7 +1385,7 @@ async function loadConversationList(subject = state.subject) {
 }
 
 async function openConversation(conversationId) {
-  const response = await fetch(`${API}/conversations/${conversationId}`);
+  const response = await apiFetch(`/conversations/${conversationId}`);
 
   if (!response.ok) {
     throw new Error("会话不存在或读取失败。");
@@ -1183,12 +1410,6 @@ async function openConversation(conversationId) {
     })),
   };
 
-  if (chat.subject && chat.subject !== state.subject) {
-    state.subject = chat.subject;
-    updateSubjectChrome();
-    updateComposerPlaceholder();
-  }
-
   const index = state.chats.findIndex((item) => item.id === chat.id);
 
   if (index >= 0) {
@@ -1205,7 +1426,7 @@ async function openConversation(conversationId) {
 }
 
 async function newChat() {
-  const response = await fetch(`${API}/conversations`, {
+  const response = await apiFetch(`/conversations`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -1237,7 +1458,6 @@ async function newChat() {
   state.chats.unshift(chat);
   state.active = chat.id;
   cacheConversation(chat);
-  rememberActiveConversation(chat.id);
 
   renderHistory();
   renderMessages();
@@ -1266,7 +1486,7 @@ async function send() {
   button.textContent = "生成中…";
 
   try {
-    const response = await fetch(`${API}/chat`, {
+    const response = await apiFetch(`/chat`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
@@ -1309,7 +1529,6 @@ async function send() {
     });
 
     cacheConversation(chat);
-    rememberActiveConversation(chat.id);
 
     await loadConversationList(state.subject);
     renderMessages();
@@ -1327,8 +1546,8 @@ async function send() {
 
 async function refreshStatus() {
   try {
-    const response = await fetch(
-      `${API}/health?subject=${encodeURIComponent(state.subject)}`,
+    const response = await apiFetch(
+      `/health?subject=${encodeURIComponent(state.subject)}`,
     );
     const data = await response.json();
 
@@ -1348,8 +1567,8 @@ async function refreshStatus() {
 }
 
 async function refreshKnowledge() {
-  const response = await fetch(
-    `${API}/knowledge/status?subject=${encodeURIComponent(state.subject)}`,
+  const response = await apiFetch(
+    `/knowledge/status?subject=${encodeURIComponent(state.subject)}`,
   );
   const data = await response.json();
   const copy = getSubjectCopy();
@@ -1366,40 +1585,6 @@ async function refreshKnowledge() {
         .map((source) => `<div class="source">${esc(source)}</div>`)
         .join("")
     : `<div class="source">${emptyText}</div>`;
-}
-
-async function switchSubject(subject) {
-  const nextSubject = subject === "java" ? "java" : "ai";
-
-  if (state.subject === nextSubject) {
-    updateSubjectChrome();
-    updateComposerPlaceholder();
-    await refreshKnowledge();
-    await refreshStatus();
-    return;
-  }
-
-  state.activeBySubject[state.subject] = state.active;
-  state.subject = nextSubject;
-  updateSubjectChrome();
-  updateComposerPlaceholder();
-
-  await loadConversationList(nextSubject);
-
-  const rememberedId = state.activeBySubject[nextSubject];
-  const rememberedChat =
-    state.chats.find((chat) => chat.id === rememberedId) ||
-    state.chats[0] ||
-    null;
-
-  if (rememberedChat) {
-    await openConversation(rememberedChat.id);
-  } else {
-    await newChat();
-  }
-
-  await refreshKnowledge();
-  await refreshStatus();
 }
 
 $("#newChatBtn").onclick = async () => {
@@ -1442,15 +1627,11 @@ document.querySelectorAll(".tab").forEach((button) => {
   };
 });
 
-document.querySelectorAll(".subject-btn").forEach((button) => {
-  button.onclick = async () => {
-    try {
-      await switchSubject(button.dataset.subject);
-    } catch (error) {
-      alert(`学科切换失败：${error.message}`);
-    }
-  };
-});
+$("#logoutBtn").onclick = logout;
+$("#loginForm").onsubmit = submitLogin;
+$("#registerForm").onsubmit = submitRegistration;
+$("#showRegisterBtn").onclick = () => setAuthMode("register");
+$("#backToLoginBtn").onclick = () => setAuthMode("login");
 
 $("#uploadForm").onsubmit = async (event) => {
   event.preventDefault();
@@ -1469,8 +1650,8 @@ $("#uploadForm").onsubmit = async (event) => {
   button.textContent = "索引构建中…";
 
   try {
-    const response = await fetch(
-      `${API}/knowledge/upload?subject=${encodeURIComponent(state.subject)}`,
+    const response = await apiFetch(
+      `/knowledge/upload?subject=${encodeURIComponent(state.subject)}`,
       {
       method: "POST",
       body: formData,
@@ -1497,11 +1678,7 @@ async function boot() {
   try {
     await loadConversationList(state.subject);
 
-    const rememberedId = state.activeBySubject[state.subject];
-    const rememberedChat =
-      state.chats.find((chat) => chat.id === rememberedId) ||
-      state.chats[0] ||
-      null;
+    const rememberedChat = state.chats[0] || null;
 
     if (rememberedChat) {
       await openConversation(rememberedChat.id);
@@ -1534,8 +1711,20 @@ document.addEventListener("DOMContentLoaded", async () => {
     
   setMode("qa");
   changeLanguage("zh");
-  updateSubjectChrome();
-  updateComposerPlaceholder();
-  await boot();
+
+  const savedAuth = getStoredAuth();
+  if (savedAuth) {
+    state.auth = savedAuth;
+    state.subject = savedAuth.subject;
+    try {
+      await refreshAuthProfile();
+      showWorkspace();
+      await boot();
+    } catch {
+      clearAuth("登录状态已失效，请重新登录。");
+    }
+  } else {
+    showLogin();
+  }
 
 });

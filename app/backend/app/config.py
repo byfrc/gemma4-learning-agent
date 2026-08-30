@@ -25,6 +25,14 @@ class Settings:
     vllm_api_key = os.getenv("VLLM_API_KEY", "EMPTY")
     vllm_model = os.getenv("VLLM_MODEL", "google/gemma4-learning")
 
+    auth_username = os.getenv("AUTH_USERNAME", "admin")
+    auth_password = os.getenv("AUTH_PASSWORD", "admin123")
+    auth_secret_key = os.getenv(
+        "AUTH_SECRET_KEY",
+        "gemma4-learning-agent-local-secret-change-me",
+    )
+    session_ttl_hours = int(os.getenv("SESSION_TTL_HOURS", "12"))
+
     ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434").rstrip("/")
     ollama_model = os.getenv("OLLAMA_MODEL", "gemma4:e4b")
 
@@ -32,6 +40,11 @@ class Settings:
     rag_chunk_size = int(os.getenv("RAG_CHUNK_SIZE", "500"))
     rag_chunk_overlap = int(os.getenv("RAG_CHUNK_OVERLAP", "90"))
     max_upload_mb = int(os.getenv("MAX_UPLOAD_MB", "30"))
+    document_ocr_enabled = os.getenv("DOCUMENT_OCR_ENABLED", "auto").lower()
+    document_ocr_lang = os.getenv("DOCUMENT_OCR_LANG", "ch")
+    document_ocr_device = os.getenv("DOCUMENT_OCR_DEVICE", "cpu")
+    office_converter = os.getenv("OFFICE_CONVERTER", "soffice")
+    office_converter_timeout = int(os.getenv("OFFICE_CONVERTER_TIMEOUT", "120"))
     default_subject = normalize_subject(
         os.getenv("DEFAULT_SUBJECT", DEFAULT_SUBJECT)
     )

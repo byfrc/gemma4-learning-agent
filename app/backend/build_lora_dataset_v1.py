@@ -1,10 +1,20 @@
 from app.config import get_settings
-from app.conversation_store import list_conversations, get_messages
+from app.conversation_store import (
+    get_messages,
+    init_db,
+    list_conversations,
+    migrate_legacy_conversation_owners,
+)
 
 import json
 from pathlib import Path
 
 settings = get_settings()
+if init_db(settings.conversation_db_path):
+    migrate_legacy_conversation_owners(
+        settings.conversation_db_path,
+        settings.auth_username,
+    )
 
 OUT_DIR = Path("/root/autodl-tmp/gemma4_learning_agent/training_data")
 OUT_DIR.mkdir(exist_ok=True, parents=True)

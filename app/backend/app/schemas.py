@@ -4,6 +4,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 SubjectKey = Literal["ai", "java"]
+UserRole = Literal["admin", "student"]
 
 
 class ChatMessage(BaseModel):
@@ -15,7 +16,7 @@ class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=24)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=100)
     agent_mode: Literal["qa", "learning_path", "quiz", "coach"] = "qa"
-    subject: SubjectKey = "ai"
+    subject: SubjectKey | None = None
     
     # 前端语言模式
     language: Literal["zh", "en"] = "zh"
@@ -32,6 +33,8 @@ class Evidence(BaseModel):
     source_file: str
     score: float
     text: str
+    location: str | None = None
+    document_type: str | None = None
 
 
 class ChatResponse(BaseModel):
@@ -48,7 +51,7 @@ class FeedbackRequest(BaseModel):
     answer: str = Field(min_length=1)
     rating: int = Field(ge=1, le=5)
     feedback: str = Field(default="", max_length=6000)
-    subject: SubjectKey = "ai"
+    subject: SubjectKey | None = None
     agent_mode: str = "qa"
     model_used: str = ""
 
@@ -62,7 +65,7 @@ class KnowledgeStatus(BaseModel):
 class ConversationCreateRequest(BaseModel):
     title: str = Field(default="新对话", min_length=1, max_length=120)
     agent_mode: Literal["qa", "learning_path", "quiz", "coach"] = "qa"
-    subject: SubjectKey = "ai"
+    subject: SubjectKey | None = None
 
 
 class ConversationRenameRequest(BaseModel):
@@ -99,6 +102,37 @@ class MessageFeedbackResponse(BaseModel):
     training_selected: bool
     created_at: str
     updated_at: str
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=256)
+    subject: SubjectKey
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    username: str
+    role: UserRole
+    subject: SubjectKey
+    expires_at: int
+
+
+class RegisterRequest(BaseModel):
+    username: str = Field(
+        min_length=3,
+        max_length=32,
+        pattern=r"^[A-Za-z0-9_.-]+$",
+    )
+    password: str = Field(min_length=6, max_length=256)
+    password_confirm: str = Field(min_length=6, max_length=256)
+
+
+class RegisterResponse(BaseModel):
+    username: str
+    message: str
+
 
 class StoredMessage(BaseModel):
     message_id: str

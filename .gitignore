@@ -72,8 +72,10 @@ _unpack/
 
 # Runtime RAG / history data
 app/backend/data/*.joblib
+app/backend/data/subjects/**/*.joblib
 app/backend/data/qa_history.jsonl
 app/backend/data/*.jsonl
+app/backend/data/subjects/**/*.jsonl
 
 # Local training exports
 training_data/lora_train_v1.jsonl

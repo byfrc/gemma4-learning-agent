@@ -3,22 +3,36 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from fastapi import FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from .auth import (
+    AuthSession,
+    ROLE_ADMIN,
+    authenticate,
+    create_access_token,
+    ensure_bootstrap_user,
+    get_user_role,
+    register_user,
+    verify_access_token,
+)
 from .config import get_settings
 from .conversation_store import (
     add_message,
     create_conversation,
     delete_conversation,
     get_conversation,
+    get_message,
     get_messages,
     init_db,
     list_conversations,
+    migrate_legacy_conversation_owners,
     update_conversation,
     get_message_feedback,
     save_message_feedback,
 )
+from .document_parser import DocumentParseError, SUPPORTED_DOCUMENT_SUFFIXES
 from .providers import build_messages, generate
 from .subject_rag import SubjectRAGManager
 from .subjects import get_subject_spec, list_subject_specs, normalize_subject
@@ -32,14 +46,27 @@ from .schemas import (
     Evidence,
     FeedbackRequest,
     KnowledgeStatus,
+    LoginRequest,
+    LoginResponse,
     MessageFeedbackResponse,
     MessageFeedbackSaveRequest,
+    RegisterRequest,
+    RegisterResponse,
     SubjectInfo,
 )
 from .storage import append_jsonl
 
 settings = get_settings()
-init_db(settings.conversation_db_path)
+if init_db(settings.conversation_db_path):
+    migrate_legacy_conversation_owners(
+        settings.conversation_db_path,
+        settings.auth_username,
+    )
+ensure_bootstrap_user(
+    settings.conversation_db_path,
+    settings.auth_username,
+    settings.auth_password,
+)
 
 rag_manager = SubjectRAGManager(settings)
 
@@ -51,6 +78,130 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def require_auth(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
+) -> AuthSession:
+    if credentials is None:
+        raise HTTPException(
+            status_code=401,
+            detail="请先登录。",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    session = verify_access_token(settings, credentials.credentials)
+    if session is None:
+        raise HTTPException(
+            status_code=401,
+            detail="登录已失效，请重新登录。",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    return session
+
+
+def require_admin(
+    user: AuthSession = Depends(require_auth),
+) -> AuthSession:
+    if user.role != ROLE_ADMIN:
+        raise HTTPException(
+            status_code=403,
+            detail="仅管理员可以上传或管理知识库。",
+        )
+    return user
+
+
+def subject_for_user(requested_subject: str | None, user: AuthSession) -> str:
+    if requested_subject is not None and normalize_subject(requested_subject) != user.subject:
+        raise HTTPException(
+            status_code=403,
+            detail="当前登录账号没有访问该学科的权限。",
+        )
+    return user.subject
+
+
+def get_conversation_for_user(
+    conversation_id: str,
+    user: AuthSession,
+) -> dict:
+    conversation = get_conversation(
+        settings.conversation_db_path,
+        conversation_id,
+        username=user.username,
+    )
+
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="会话不存在。")
+
+    if normalize_subject(conversation.get("subject")) != user.subject:
+        raise HTTPException(
+            status_code=403,
+            detail="当前登录账号没有访问该会话的权限。",
+        )
+
+    return conversation
+
+
+@app.post("/api/auth/login", response_model=LoginResponse)
+async def login(payload: LoginRequest):
+    username = payload.username.strip().lower()
+    if not authenticate(
+        settings.conversation_db_path,
+        username,
+        payload.password,
+    ):
+        raise HTTPException(
+            status_code=401,
+            detail="账号或密码错误。",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    role = get_user_role(settings.conversation_db_path, username) or "student"
+    token, expires_at = create_access_token(
+        settings,
+        username=username,
+        subject=payload.subject,
+        role=role,
+    )
+    return LoginResponse(
+        access_token=token,
+        username=username,
+        role=role,
+        subject=payload.subject,
+        expires_at=expires_at,
+    )
+
+
+@app.post("/api/auth/register", response_model=RegisterResponse)
+async def register(payload: RegisterRequest):
+    if payload.password != payload.password_confirm:
+        raise HTTPException(status_code=400, detail="两次输入的密码不一致。")
+
+    username = payload.username.strip().lower()
+    try:
+        registered_username = register_user(
+            settings.conversation_db_path,
+            username,
+            payload.password,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+
+    return RegisterResponse(
+        username=registered_username,
+        message="注册成功，请使用新账号登录。",
+    )
+
+
+@app.get("/api/auth/me")
+async def current_user(user: AuthSession = Depends(require_auth)):
+    return {
+        "username": user.username,
+        "role": user.role,
+    }
 
 
 @app.get("/api/subjects", response_model=list[SubjectInfo])
@@ -67,35 +218,41 @@ async def get_subjects():
     ]
 
 @app.post("/api/conversations", response_model=ConversationSummary)
-async def create_new_conversation(payload: ConversationCreateRequest):
-    subject = normalize_subject(payload.subject)
+async def create_new_conversation(
+    payload: ConversationCreateRequest,
+    user: AuthSession = Depends(require_auth),
+):
+    subject = subject_for_user(payload.subject, user)
     conversation = create_conversation(
         settings.conversation_db_path,
         title=payload.title,
         agent_mode=payload.agent_mode,
         subject=subject,
+        username=user.username,
     )
     return ConversationSummary(**conversation)
 
 
 @app.get("/api/conversations", response_model=list[ConversationSummary])
-async def get_conversation_list(subject: str | None = None):
+async def get_conversation_list(
+    subject: str | None = None,
+    user: AuthSession = Depends(require_auth),
+):
+    subject = subject_for_user(subject, user)
     conversations = list_conversations(
         settings.conversation_db_path,
         subject=subject,
+        username=user.username,
     )
     return [ConversationSummary(**item) for item in conversations]
 
 
 @app.get("/api/conversations/{conversation_id}", response_model=ConversationDetail)
-async def get_conversation_detail(conversation_id: str):
-    conversation = get_conversation(
-        settings.conversation_db_path,
-        conversation_id,
-    )
-
-    if conversation is None:
-        raise HTTPException(status_code=404, detail="会话不存在。")
+async def get_conversation_detail(
+    conversation_id: str,
+    user: AuthSession = Depends(require_auth),
+):
+    conversation = get_conversation_for_user(conversation_id, user)
 
     messages = get_messages(
         settings.conversation_db_path,
@@ -112,12 +269,15 @@ async def get_conversation_detail(conversation_id: str):
 async def rename_conversation(
     conversation_id: str,
     payload: ConversationRenameRequest,
+    user: AuthSession = Depends(require_auth),
 ):
+    get_conversation_for_user(conversation_id, user)
     conversation = update_conversation(
         settings.conversation_db_path,
         conversation_id,
         title=payload.title,
         agent_mode=payload.agent_mode,
+        username=user.username,
     )
 
     if conversation is None:
@@ -127,10 +287,15 @@ async def rename_conversation(
 
 
 @app.delete("/api/conversations/{conversation_id}")
-async def remove_conversation(conversation_id: str):
+async def remove_conversation(
+    conversation_id: str,
+    user: AuthSession = Depends(require_auth),
+):
+    get_conversation_for_user(conversation_id, user)
     deleted = delete_conversation(
         settings.conversation_db_path,
         conversation_id,
+        username=user.username,
     )
 
     if not deleted:
@@ -145,14 +310,9 @@ async def remove_conversation(conversation_id: str):
 async def export_conversation(
     conversation_id: str,
     format: str = "markdown",
+    user: AuthSession = Depends(require_auth),
 ):
-    conversation = get_conversation(
-        settings.conversation_db_path,
-        conversation_id,
-    )
-
-    if conversation is None:
-        raise HTTPException(status_code=404, detail="会话不存在。")
+    conversation = get_conversation_for_user(conversation_id, user)
 
     messages = get_messages(
         settings.conversation_db_path,
@@ -230,10 +390,14 @@ async def export_conversation(
                 source_file = item.get("source_file", "未知来源")
                 score = item.get("score", "未知")
                 text = item.get("text", "")
+                location = item.get("location")
+                document_type = item.get("document_type")
 
                 lines.extend(
                     [
                         f"- **来源**：{source_file}",
+                        f"- **位置**：{location}" if location else "- **位置**：未标注",
+                        f"- **文档类型**：{document_type}" if document_type else "- **文档类型**：未标注",
                         f"- **相关度**：{score}",
                         f"- **片段**：{text}",
                         "",
@@ -274,7 +438,13 @@ async def export_conversation(
 async def save_quality_feedback(
     message_id: str,
     payload: MessageFeedbackSaveRequest,
+    user: AuthSession = Depends(require_auth),
 ):
+    message = get_message(settings.conversation_db_path, message_id)
+    if message is None:
+        raise HTTPException(status_code=404, detail="目标消息不存在。")
+    get_conversation_for_user(message["conversation_id"], user)
+
     try:
         result = save_message_feedback(
             settings.conversation_db_path,
@@ -293,7 +463,15 @@ async def save_quality_feedback(
     "/api/messages/{message_id}/feedback",
     response_model=MessageFeedbackResponse,
 )
-async def get_quality_feedback(message_id: str):
+async def get_quality_feedback(
+    message_id: str,
+    user: AuthSession = Depends(require_auth),
+):
+    message = get_message(settings.conversation_db_path, message_id)
+    if message is None:
+        raise HTTPException(status_code=404, detail="目标消息不存在。")
+    get_conversation_for_user(message["conversation_id"], user)
+
     result = get_message_feedback(
         settings.conversation_db_path,
         message_id,
@@ -305,9 +483,17 @@ async def get_quality_feedback(message_id: str):
     return MessageFeedbackResponse(**result)
 
 
+@app.get("/api/healthz")
+async def healthz():
+    return {"status": "ok"}
+
+
 @app.get("/api/health")
-async def health(subject: str | None = None):
-    subject_key = normalize_subject(subject)
+async def health(
+    subject: str | None = None,
+    user: AuthSession = Depends(require_auth),
+):
+    subject_key = subject_for_user(subject, user)
     files, chunks, _ = rag_manager.status(subject_key)
     spec = get_subject_spec(subject_key)
     return {
@@ -322,8 +508,11 @@ async def health(subject: str | None = None):
 
 
 @app.get("/api/knowledge/status", response_model=KnowledgeStatus)
-async def knowledge_status(subject: str | None = None):
-    subject_key = normalize_subject(subject)
+async def knowledge_status(
+    subject: str | None = None,
+    user: AuthSession = Depends(require_auth),
+):
+    subject_key = subject_for_user(subject, user)
     file_count, chunk_count, sources = rag_manager.status(subject_key)
     return KnowledgeStatus(
         subject=subject_key,
@@ -336,12 +525,16 @@ async def knowledge_status(subject: str | None = None):
 @app.post("/api/knowledge/upload")
 async def upload_knowledge(
     file: UploadFile = File(...),
-    subject: str = settings.default_subject,
+    subject: str | None = None,
+    user: AuthSession = Depends(require_admin),
 ):
-    subject_key = normalize_subject(subject)
+    subject_key = subject_for_user(subject, user)
     suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".txt", ".md", ".csv"}:
-        raise HTTPException(status_code=400, detail="当前部署版支持 TXT、MD、CSV；PDF/DOCX 可作为第二阶段接入解析器。")
+    if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
+        raise HTTPException(
+            status_code=400,
+            detail="支持 TXT、MD、CSV、PDF、PPT、PPTX 文件。",
+        )
 
     payload = await file.read()
     if len(payload) > settings.max_upload_mb * 1024 * 1024:
@@ -349,8 +542,29 @@ async def upload_knowledge(
 
     safe_name = Path(file.filename or "knowledge.txt").name
     target = settings.knowledge_dir_for(subject_key) / safe_name
+    rag = rag_manager.get(subject_key)
+    previous_payload = target.read_bytes() if target.exists() else None
     target.write_bytes(payload)
-    rag_manager.rebuild(subject_key)
+    try:
+        parsed_sections = rag.parse_file(target)
+        if not parsed_sections:
+            raise DocumentParseError(
+                "文件中没有提取到可用文本。扫描型 PDF 请安装 PaddleOCR，"
+                "或检查 PPT/PDF 是否包含文字内容。"
+            )
+        rag.rebuild()
+    except DocumentParseError as exc:
+        if previous_payload is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.write_bytes(previous_payload)
+        raise HTTPException(status_code=400, detail=f"文件解析失败：{exc}") from exc
+    except Exception as exc:
+        if previous_payload is None:
+            target.unlink(missing_ok=True)
+        else:
+            target.write_bytes(previous_payload)
+        raise HTTPException(status_code=500, detail=f"知识库重建失败：{exc}") from exc
 
     files, chunks, sources = rag_manager.status(subject_key)
     return {
@@ -363,7 +577,10 @@ async def upload_knowledge(
 
 
 @app.post("/api/chat", response_model=ChatResponse)
-async def chat(payload: ChatRequest):
+async def chat(
+    payload: ChatRequest,
+    user: AuthSession = Depends(require_auth),
+):
     incoming_history = [item.model_dump() for item in payload.messages]
 
     current_question = next(
@@ -383,19 +600,26 @@ async def chat(payload: ChatRequest):
 
     conversation_id = payload.conversation_id
     conversation = None
-    subject = normalize_subject(payload.subject)
+    subject = subject_for_user(payload.subject, user)
 
     # 新版：携带 conversation_id 时，从 SQLite 恢复真实历史。
     if conversation_id:
         conversation = get_conversation(
             settings.conversation_db_path,
             conversation_id,
+            username=user.username,
         )
 
         if conversation is None:
             raise HTTPException(status_code=404, detail="会话不存在。")
 
-        subject = normalize_subject(conversation.get("subject"))
+        conversation_subject = normalize_subject(conversation.get("subject"))
+        if conversation_subject != user.subject:
+            raise HTTPException(
+                status_code=403,
+                detail="当前登录账号没有访问该会话的权限。",
+            )
+        subject = conversation_subject
 
         stored_messages = get_messages(
             settings.conversation_db_path,
@@ -416,6 +640,7 @@ async def chat(payload: ChatRequest):
             conversation_id,
             role="user",
             content=current_question,
+            username=user.username,
         )
 
         history.append(
@@ -464,6 +689,8 @@ async def chat(payload: ChatRequest):
             source_file=item.source_file,
             score=item.score,
             text=item.text,
+            location=item.location,
+            document_type=item.document_type,
         )
         for item in evidence_rows
     ]
@@ -483,6 +710,7 @@ async def chat(payload: ChatRequest):
             content=answer,
             evidence=[item.model_dump() for item in evidence],
             model_used=model_used,
+            username=user.username,
         )
         # 首次提问时自动把“新对话”改成问题标题。
         if conversation and conversation["title"] == "新对话":
@@ -491,12 +719,14 @@ async def chat(payload: ChatRequest):
                 conversation_id,
                 title=title,
                 agent_mode=payload.agent_mode,
+                username=user.username,
             )
         else:
             update_conversation(
                 settings.conversation_db_path,
                 conversation_id,
                 agent_mode=payload.agent_mode,
+                username=user.username,
             )
 
     # 旧版：继续保留 JSONL 日志，保证原前端功能不受影响。
@@ -528,7 +758,12 @@ async def chat(payload: ChatRequest):
     )
 
 @app.post("/api/feedback")
-async def feedback(payload: FeedbackRequest):
-    subject = normalize_subject(payload.subject)
-    append_jsonl(settings.feedback_log_path_for(subject), payload.model_dump())
+async def feedback(
+    payload: FeedbackRequest,
+    user: AuthSession = Depends(require_auth),
+):
+    subject = subject_for_user(payload.subject, user)
+    feedback_payload = payload.model_dump()
+    feedback_payload["subject"] = subject
+    append_jsonl(settings.feedback_log_path_for(subject), feedback_payload)
     return {"message": "反馈已保存，可用于后续整理为 LoRA / QLoRA 训练样本。"}

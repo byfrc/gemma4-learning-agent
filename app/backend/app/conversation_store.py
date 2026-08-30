@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from .auth import normalize_username
 from .subjects import normalize_subject
 
 
@@ -21,14 +22,16 @@ def get_conn(db_path: Path) -> sqlite3.Connection:
     return conn
 
 
-def init_db(db_path: Path) -> None:
+def init_db(db_path: Path) -> bool:
     db_path.parent.mkdir(parents=True, exist_ok=True)
+    needs_legacy_owner_migration = False
 
     with get_conn(db_path) as conn:
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS conversations (
                 conversation_id TEXT PRIMARY KEY,
+                username TEXT NOT NULL DEFAULT 'admin',
                 subject TEXT NOT NULL DEFAULT 'ai',
                 title TEXT NOT NULL,
                 agent_mode TEXT NOT NULL DEFAULT 'qa',
@@ -43,6 +46,15 @@ def init_db(db_path: Path) -> None:
             for row in conn.execute("PRAGMA table_info(conversations)").fetchall()
         }
 
+        if "username" not in existing_columns:
+            conn.execute(
+                """
+                ALTER TABLE conversations
+                ADD COLUMN username TEXT NOT NULL DEFAULT 'admin'
+                """
+            )
+            needs_legacy_owner_migration = True
+
         if "subject" not in existing_columns:
             conn.execute(
                 """
@@ -50,6 +62,16 @@ def init_db(db_path: Path) -> None:
                 ADD COLUMN subject TEXT NOT NULL DEFAULT 'ai'
                 """
             )
+
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS users (
+                username TEXT PRIMARY KEY,
+                password_hash TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
 
         conn.execute(
             """
@@ -116,13 +138,17 @@ def init_db(db_path: Path) -> None:
             """
         )
 
+    return needs_legacy_owner_migration
+
 
 def create_conversation(
     db_path: Path,
     title: str = "新对话",
     agent_mode: str = "qa",
     subject: str = "ai",
+    username: str = "admin",
 ) -> dict[str, Any]:
+    username = normalize_username(username)
     subject = normalize_subject(subject)
     conversation_id = str(uuid.uuid4())
     now = now_iso()
@@ -131,14 +157,15 @@ def create_conversation(
         conn.execute(
             """
             INSERT INTO conversations (
-                conversation_id, subject, title, agent_mode, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?)
+                conversation_id, username, subject, title, agent_mode, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (conversation_id, subject, title, agent_mode, now, now),
+            (conversation_id, username, subject, title, agent_mode, now, now),
         )
 
     return {
         "conversation_id": conversation_id,
+        "username": username,
         "subject": subject,
         "title": title,
         "agent_mode": agent_mode,
@@ -151,30 +178,34 @@ def list_conversations(
     db_path: Path,
     subject: str | None = None,
     limit: int = 100,
+    username: str | None = None,
 ) -> list[dict[str, Any]]:
     normalized_subject = normalize_subject(subject) if subject else None
+    normalized_username = normalize_username(username) if username else None
+    conditions: list[str] = []
+    params: list[Any] = []
+
+    if normalized_subject is not None:
+        conditions.append("subject = ?")
+        params.append(normalized_subject)
+    if normalized_username is not None:
+        conditions.append("username = ?")
+        params.append(normalized_username)
+
+    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+    params.append(limit)
+
     with get_conn(db_path) as conn:
-        if normalized_subject is None:
-            rows = conn.execute(
-                """
-                SELECT conversation_id, subject, title, agent_mode, created_at, updated_at
-                FROM conversations
-                ORDER BY updated_at DESC
-                LIMIT ?
-                """,
-                (limit,),
-            ).fetchall()
-        else:
-            rows = conn.execute(
-                """
-                SELECT conversation_id, subject, title, agent_mode, created_at, updated_at
-                FROM conversations
-                WHERE subject = ?
-                ORDER BY updated_at DESC
-                LIMIT ?
-                """,
-                (normalized_subject, limit),
-            ).fetchall()
+        rows = conn.execute(
+            f"""
+            SELECT conversation_id, username, subject, title, agent_mode, created_at, updated_at
+            FROM conversations
+            {where_clause}
+            ORDER BY updated_at DESC
+            LIMIT ?
+            """,
+            tuple(params),
+        ).fetchall()
 
     return [dict(row) for row in rows]
 
@@ -182,15 +213,24 @@ def list_conversations(
 def get_conversation(
     db_path: Path,
     conversation_id: str,
+    username: str | None = None,
 ) -> dict[str, Any] | None:
+    normalized_username = normalize_username(username) if username else None
+    owner_clause = "AND username = ?" if normalized_username is not None else ""
+    params: tuple[Any, ...] = (
+        (conversation_id, normalized_username)
+        if normalized_username is not None
+        else (conversation_id,)
+    )
+
     with get_conn(db_path) as conn:
         row = conn.execute(
-            """
-            SELECT conversation_id, subject, title, agent_mode, created_at, updated_at
+            f"""
+            SELECT conversation_id, username, subject, title, agent_mode, created_at, updated_at
             FROM conversations
-            WHERE conversation_id = ?
+            WHERE conversation_id = ? {owner_clause}
             """,
-            (conversation_id,),
+            params,
         ).fetchone()
 
     return dict(row) if row else None
@@ -266,6 +306,23 @@ def get_messages(
     return messages
 
 
+def get_message(
+    db_path: Path,
+    message_id: str,
+) -> dict[str, Any] | None:
+    with get_conn(db_path) as conn:
+        row = conn.execute(
+            """
+            SELECT message_id, conversation_id, role, content, created_at
+            FROM messages
+            WHERE message_id = ?
+            """,
+            (message_id,),
+        ).fetchone()
+
+    return dict(row) if row else None
+
+
 def add_message(
     db_path: Path,
     conversation_id: str,
@@ -273,6 +330,7 @@ def add_message(
     content: str,
     evidence: list[dict[str, Any]] | None = None,
     model_used: str | None = None,
+    username: str | None = None,
 ) -> dict[str, Any]:
     if role not in {"user", "assistant"}:
         raise ValueError("role 必须是 user 或 assistant")
@@ -282,13 +340,20 @@ def add_message(
     evidence_json = json.dumps(evidence or [], ensure_ascii=False)
 
     with get_conn(db_path) as conn:
+        normalized_username = normalize_username(username) if username else None
+        owner_clause = "AND username = ?" if normalized_username is not None else ""
+        params: tuple[Any, ...] = (
+            (conversation_id, normalized_username)
+            if normalized_username is not None
+            else (conversation_id,)
+        )
         exists = conn.execute(
-            """
+            f"""
             SELECT 1
             FROM conversations
-            WHERE conversation_id = ?
+            WHERE conversation_id = ? {owner_clause}
             """,
-            (conversation_id,),
+            params,
         ).fetchone()
 
         if not exists:
@@ -343,8 +408,9 @@ def update_conversation(
     title: str | None = None,
     agent_mode: str | None = None,
     subject: str | None = None,
+    username: str | None = None,
 ) -> dict[str, Any] | None:
-    current = get_conversation(db_path, conversation_id)
+    current = get_conversation(db_path, conversation_id, username=username)
 
     if current is None:
         return None
@@ -361,32 +427,69 @@ def update_conversation(
     now = now_iso()
 
     with get_conn(db_path) as conn:
+        normalized_username = normalize_username(username) if username else None
+        owner_clause = "AND username = ?" if normalized_username is not None else ""
+        params: tuple[Any, ...] = (
+            (
+                new_subject,
+                new_title,
+                new_agent_mode,
+                now,
+                conversation_id,
+                normalized_username,
+            )
+            if normalized_username is not None
+            else (new_subject, new_title, new_agent_mode, now, conversation_id)
+        )
         conn.execute(
-            """
+            f"""
             UPDATE conversations
             SET subject = ?, title = ?, agent_mode = ?, updated_at = ?
-            WHERE conversation_id = ?
+            WHERE conversation_id = ? {owner_clause}
             """,
-            (new_subject, new_title, new_agent_mode, now, conversation_id),
+            params,
         )
 
-    return get_conversation(db_path, conversation_id)
+    return get_conversation(db_path, conversation_id, username=username)
 
 
 def delete_conversation(
     db_path: Path,
     conversation_id: str,
+    username: str | None = None,
 ) -> bool:
+    normalized_username = normalize_username(username) if username else None
+    owner_clause = "AND username = ?" if normalized_username is not None else ""
+    params: tuple[Any, ...] = (
+        (conversation_id, normalized_username)
+        if normalized_username is not None
+        else (conversation_id,)
+    )
     with get_conn(db_path) as conn:
         result = conn.execute(
-            """
+            f"""
             DELETE FROM conversations
-            WHERE conversation_id = ?
+            WHERE conversation_id = ? {owner_clause}
             """,
-            (conversation_id,),
+            params,
         )
 
     return result.rowcount > 0
+
+
+def migrate_legacy_conversation_owners(
+    db_path: Path,
+    username: str,
+) -> None:
+    with get_conn(db_path) as conn:
+        conn.execute(
+            """
+            UPDATE conversations
+            SET username = ?
+            WHERE username = 'admin'
+            """,
+            (normalize_username(username),),
+        )
 
 def get_message_feedback(
     db_path: Path,

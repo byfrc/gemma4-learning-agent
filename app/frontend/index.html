@@ -8,7 +8,62 @@
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"/>
 </head>
 <body>
-  <div class="app-shell">
+  <section id="loginScreen" class="login-screen">
+    <div class="login-panel">
+      <div class="login-brand">
+        <span class="login-brand-mark"><img src="./gemma4-logo.png" alt="Gemma4 Logo"></span>
+        <div><strong>Gemma4 学习智能体</strong><small>本地大模型 · 私有知识库</small></div>
+      </div>
+      <div class="login-copy">
+        <span class="eyebrow">GEMMA4 LEARNING WORKSPACE</span>
+        <h1 id="authTitle">登录学习平台</h1>
+        <p id="authDescription">使用账号密码登录，并选择本次学习的课程方向。</p>
+      </div>
+      <form id="loginForm" class="login-form">
+        <label>
+          <span>账号</span>
+          <input id="loginUsername" name="username" type="text" autocomplete="username" placeholder="请输入账号" required>
+        </label>
+        <label>
+          <span>密码</span>
+          <input id="loginPassword" name="password" type="password" autocomplete="current-password" placeholder="请输入密码" required>
+        </label>
+        <fieldset class="subject-options">
+          <legend>选择学习学科</legend>
+          <label class="subject-option">
+            <input type="radio" name="subject" value="ai" checked>
+            <span><b>人工智能</b><small>AI 基础、机器学习与大模型应用</small></span>
+          </label>
+          <label class="subject-option">
+            <input type="radio" name="subject" value="java">
+            <span><b>Java</b><small>Java 语法、面向对象与工程实践</small></span>
+          </label>
+        </fieldset>
+        <button id="loginBtn" class="login-btn" type="submit">登录并进入学习空间 <span>→</span></button>
+        <p id="loginError" class="login-error" role="alert"></p>
+      </form>
+      <button id="showRegisterBtn" class="auth-switch" type="button">还没有账号？立即注册</button>
+      <form id="registerForm" class="login-form is-hidden">
+        <label>
+          <span>新账号</span>
+          <input id="registerUsername" name="username" type="text" autocomplete="username" placeholder="3-32 位字母、数字或 _.-" required>
+        </label>
+        <label>
+          <span>设置密码</span>
+          <input id="registerPassword" name="password" type="password" autocomplete="new-password" placeholder="至少 6 位" required>
+        </label>
+        <label>
+          <span>确认密码</span>
+          <input id="registerPasswordConfirm" name="password_confirm" type="password" autocomplete="new-password" placeholder="再次输入密码" required>
+        </label>
+        <button id="registerBtn" class="login-btn" type="submit">注册账号 <span>→</span></button>
+        <p id="registerError" class="login-error" role="alert"></p>
+        <button id="backToLoginBtn" class="auth-switch" type="button">已有账号？返回登录</button>
+      </form>
+    </div>
+  </section>
+
+  <div id="appShell" class="app-shell is-hidden">
     <aside class="sidebar" id="sidebar">
       <div class="sidebar-top">
         <a class="brand" href="#" aria-label="Gemma4 私域学习智能体首页">
@@ -44,10 +99,7 @@
         <button class="mobile-menu" id="mobileMenuBtn" type="button" aria-label="打开侧边栏">☰</button>
         <div class="page-title"><span class="eyebrow">GEMMA4 LEARNING WORKSPACE</span><h1 data-i18n="workspace_title">私域学习智能体工作台</h1></div>
         <div class="top-actions">
-          <div class="subject-switch" role="tablist" aria-label="学科切换">
-            <button id="subjectAiBtn" class="subject-btn active" type="button" data-subject="ai" aria-pressed="true">AI</button>
-            <button id="subjectJavaBtn" class="subject-btn" type="button" data-subject="java" aria-pressed="false">Java</button>
-          </div>
+          <div id="currentSubjectBadge" class="current-subject">人工智能</div>
           <div class="lang-switch">
             <button id="zhBtn" class="active">中文
             </button>
@@ -57,8 +109,8 @@
           </div>
           <button id="knowledgeBtn" class="outline">
           <span>▣</span>知识库管理</button>
-          <div class="avatar">学
-          </div>
+          <div id="userAvatar" class="avatar">学</div>
+          <button id="logoutBtn" class="logout-btn" type="button">退出登录</button>
         </div>
           
       </header>
@@ -133,11 +185,12 @@
       </div>
     </div>
     <form id="uploadForm" class="upload">
-      <input id="knowledgeFile" type="file" accept=".txt,.md,.csv" required>
-      <div class="upload-copy"><b data-i18n="select_material">选择课程资料</b><small data-i18n="upload_desc">当前支持 TXT、MD、CSV，单个文件不超过 30 MB。</small></div>
+      <input id="knowledgeFile" type="file" accept=".txt,.md,.csv,.pdf,.ppt,.pptx" required>
+      <div class="upload-copy"><b data-i18n="select_material">选择课程资料</b><small data-i18n="upload_desc">支持 TXT、MD、CSV、PDF、PPT、PPTX，单个文件不超过 30 MB。</small></div>
       <button type="submit" data-i18n="upload_button">上传并构建索引</button>
     </form>
-    <div class="source-title"><span data-i18n="source_title">已入库资料</span><small data-i18n="source_desc">上传新文件会自动刷新索引</small></div>
+    <p id="knowledgeReadOnly" class="knowledge-readonly is-hidden" role="status"></p>
+    <div class="source-title"><span data-i18n="source_title">已入库资料</span><small id="sourceDesc" data-i18n="source_desc">上传新文件会自动刷新索引</small></div>
     <div id="sourceList" class="source-list"></div>
   </dialog>
 

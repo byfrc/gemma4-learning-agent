@@ -64,6 +64,43 @@ cp backend/.env.example backend/.env
 nano backend/.env
 ```
 
+配置登录账号：
+
+```ini
+AUTH_USERNAME=admin
+AUTH_PASSWORD=admin123
+AUTH_SECRET_KEY=change-this-to-a-random-long-secret
+SESSION_TTL_HOURS=12
+```
+
+上述示例账号密码可直接用于首次联调；正式部署前请修改为强密码和随机签名密钥。
+浏览器打开平台后，先使用配置的账号密码登录，再在登录界面选择 AI 或 Java
+学科。登录后的会话固定使用所选学科，工作台内不再切换学科。
+登录页也提供新用户注册入口；注册账号和会话数据会保存到后端 SQLite 数据库。
+配置的初始账号为管理员；注册账号默认为学生。知识库上传接口仅允许管理员访问，
+学生端只能查看已有资料和使用检索问答。
+
+后端依赖现在支持 TXT、MD、CSV、PDF、PPT、PPTX。旧版 `.ppt` 需要额外安装
+LibreOffice：
+
+```bash
+apt-get update
+apt-get install -y libreoffice
+```
+
+扫描型 PDF 的 OCR 为可选能力。安装与你的 Web 环境匹配的 PaddlePaddle 和 PaddleOCR
+后，可在 `.env` 中保持：
+
+```ini
+DOCUMENT_OCR_ENABLED=auto
+DOCUMENT_OCR_LANG=ch
+DOCUMENT_OCR_DEVICE=cpu
+OFFICE_CONVERTER=soffice
+```
+
+`auto` 会优先使用 PDF 原生文字；只有页面没有文字时才尝试 PaddleOCR。未安装
+PaddleOCR 时，普通文字型 PDF 仍可正常解析；扫描型 PDF 会提示需要安装 OCR。
+
 第一次为了验证前后端通信，可以把：
 
 ```ini
@@ -290,7 +327,8 @@ systemctl restart gemma4-learning-api
 - A100 40GB 的 Gemma4-12B QLoRA 脚本；
 - vLLM + LoRA + Nginx + systemd 的部署通路。
 
-当前上传/解析先支持 TXT/MD/CSV。PDF、DOCX、XLSX 可在第二阶段接入解析器；你原本 Streamlit 版本的 CSV/TXT/MD 逻辑已完整保留到后端。
+当前上传/解析支持 TXT、MD、CSV、PDF、PPT、PPTX。PDF 会保留页码，PPT/PPTX
+会保留幻灯片号；PPTX 还会提取表格和讲者备注。DOCX、XLSX 可在后续阶段接入。
 
 学科切换后，AI 资料默认仍在 `backend/data/knowledge/`，Java 资料默认放到 `backend/data/subjects/java/knowledge/`，两个目录的索引、会话和反馈日志是分开的。
 

@@ -80,13 +80,13 @@ echo "[5/5] 启动 FastAPI"
 nohup bash "${PROJECT_DIR}/deploy/04_start_dev.sh" "${PROJECT_ROOT}" > "${API_LOG}" 2>&1 &
 
 for i in $(seq 1 120); do
-  if curl -fsS --max-time 3 http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+  if curl -fsS --max-time 3 http://127.0.0.1:8000/api/healthz >/dev/null 2>&1; then
     break
   fi
   sleep 2
 done
 
-if ! curl -fsS --max-time 3 http://127.0.0.1:8000/api/health >/dev/null 2>&1; then
+if ! curl -fsS --max-time 3 http://127.0.0.1:8000/api/healthz >/dev/null 2>&1; then
   echo "FastAPI 启动超时，请查看 ${API_LOG}"
   tail -n 80 "${API_LOG}" || true
   exit 1
@@ -94,5 +94,5 @@ fi
 
 echo "启动完成。"
 echo "  前端:  http://127.0.0.1/"
-echo "  API:   http://127.0.0.1:8000/api/health"
+echo "  API:   http://127.0.0.1:8000/api/healthz"
 echo "  模型:  http://127.0.0.1:8001/v1/models"

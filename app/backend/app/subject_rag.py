@@ -23,6 +23,11 @@ class SubjectRAGManager:
                     index_path=self.settings.rag_index_path_for(key),
                     chunk_size=self.settings.rag_chunk_size,
                     overlap=self.settings.rag_chunk_overlap,
+                    ocr_mode=self.settings.document_ocr_enabled,
+                    ocr_lang=self.settings.document_ocr_lang,
+                    ocr_device=self.settings.document_ocr_device,
+                    office_converter=self.settings.office_converter,
+                    office_timeout_seconds=self.settings.office_converter_timeout,
                 )
                 self._engines[key] = engine
             return engine
