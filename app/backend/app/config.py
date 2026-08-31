@@ -45,6 +45,21 @@ class Settings:
     document_ocr_device = os.getenv("DOCUMENT_OCR_DEVICE", "cpu")
     office_converter = os.getenv("OFFICE_CONVERTER", "soffice")
     office_converter_timeout = int(os.getenv("OFFICE_CONVERTER_TIMEOUT", "120"))
+    java_run_enabled = os.getenv("JAVA_RUN_ENABLED", "true").lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    java_javac_command = os.getenv("JAVA_JAVAC", "javac")
+    java_runtime_command = os.getenv("JAVA_RUNTIME", "java")
+    java_timeout_seconds = int(os.getenv("JAVA_TIMEOUT_SECONDS", "5"))
+    java_compile_timeout_seconds = int(
+        os.getenv("JAVA_COMPILE_TIMEOUT_SECONDS", "10")
+    )
+    java_max_code_kb = int(os.getenv("JAVA_MAX_CODE_KB", "32"))
+    java_max_stdin_kb = int(os.getenv("JAVA_MAX_STDIN_KB", "8"))
+    java_max_output_kb = int(os.getenv("JAVA_MAX_OUTPUT_KB", "256"))
     default_subject = normalize_subject(
         os.getenv("DEFAULT_SUBJECT", DEFAULT_SUBJECT)
     )

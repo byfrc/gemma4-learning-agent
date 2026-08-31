@@ -35,6 +35,7 @@
 | 知识库权限 | 仅管理员可以上传课程资料和重建知识库，学生只能查看和使用知识库 |
 | RAG 知识库问答 | 支持 TXT、MD、CSV、PDF、PPT、PPTX 知识库检索增强回答 |
 | 分学科知识库 | AI 与 Java 的资料、索引和日志分开管理 |
+| Java 在线IDE | Java 学科提供浏览器代码编辑、标准输入、编译运行和错误输出 |
 | 对话历史 | 使用 SQLite 保存用户与助手的历史会话 |
 | 会话管理 | 支持会话重命名、删除和导出 |
 | 回答评分 | 支持对助手回答进行质量评价 |
@@ -172,6 +173,10 @@ LibreOffice（提供 `soffice` 命令），例如 Ubuntu/Debian：
 
 `apt-get update && apt-get install -y libreoffice`
 
+Java 学科的在线IDE需要服务器安装 JDK，并确保 `javac` 和 `java` 在 `PATH` 中：
+
+`apt-get update && apt-get install -y openjdk-17-jdk`
+
 ### 3. 配置环境变量
 
 `cp .env.example .env`
@@ -201,6 +206,10 @@ LibreOffice（提供 `soffice` 命令），例如 Ubuntu/Debian：
 管理员账号可以上传课程资料并重建知识库；新注册账号默认为学生，只能查看和使用已有知识库。
 上传 PDF 时会优先提取 PDF 原生文字；扫描型 PDF 可通过安装 PaddleOCR 开启 OCR
 兜底。PPTX 会提取幻灯片文字、表格和讲者备注，并在 RAG 证据中保留页码或幻灯片号。
+登录 Java 学科后，点击“在线IDE”即可编辑 `Main.java` 并运行；代码默认限制为
+教学场景下的单文件 `Main` 类，服务端会限制代码大小、编译/运行时间和输出大小，
+并拦截常见文件、网络和进程控制 API。在线执行器适合内网教学环境，正式公网部署
+建议进一步放入独立低权限容器或沙箱。
 
 部署说明可参考：
 

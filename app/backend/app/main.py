@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
@@ -33,6 +34,11 @@ from .conversation_store import (
     save_message_feedback,
 )
 from .document_parser import DocumentParseError, SUPPORTED_DOCUMENT_SUFFIXES
+from .java_runner import (
+    JavaRunnerError,
+    JavaToolchainError,
+    run_java_code,
+)
 from .providers import build_messages, generate
 from .subject_rag import SubjectRAGManager
 from .subjects import get_subject_spec, list_subject_specs, normalize_subject
@@ -45,6 +51,8 @@ from .schemas import (
     ConversationSummary,
     Evidence,
     FeedbackRequest,
+    JavaRunRequest,
+    JavaRunResponse,
     KnowledgeStatus,
     LoginRequest,
     LoginResponse,
@@ -519,6 +527,52 @@ async def knowledge_status(
         file_count=file_count,
         chunk_count=chunk_count,
         sources=sources,
+    )
+
+
+@app.post("/api/java/run", response_model=JavaRunResponse)
+async def run_java(
+    payload: JavaRunRequest,
+    user: AuthSession = Depends(require_auth),
+):
+    if user.subject != "java":
+        raise HTTPException(
+            status_code=403,
+            detail="在线IDE仅对 Java 学科开放。",
+        )
+    if not settings.java_run_enabled:
+        raise HTTPException(
+            status_code=503,
+            detail="在线IDE运行服务当前未启用。",
+        )
+
+    try:
+        result = await asyncio.to_thread(
+            run_java_code,
+            payload.code,
+            payload.stdin,
+            javac_command=settings.java_javac_command,
+            java_command=settings.java_runtime_command,
+            timeout_seconds=settings.java_timeout_seconds,
+            compile_timeout_seconds=settings.java_compile_timeout_seconds,
+            max_code_bytes=settings.java_max_code_kb * 1024,
+            max_stdin_bytes=settings.java_max_stdin_kb * 1024,
+            max_output_bytes=settings.java_max_output_kb * 1024,
+        )
+    except JavaRunnerError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except JavaToolchainError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"代码运行失败：{exc}") from exc
+
+    return JavaRunResponse(
+        success=result.success,
+        output=result.output,
+        error=result.error,
+        compile_output=result.compile_output,
+        duration_ms=result.duration_ms,
+        timed_out=result.timed_out,
     )
 
 

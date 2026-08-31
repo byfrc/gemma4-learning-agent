@@ -62,6 +62,21 @@ class KnowledgeStatus(BaseModel):
     chunk_count: int
     sources: list[str]
 
+
+class JavaRunRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=32_000)
+    stdin: str = Field(default="", max_length=8_000)
+
+
+class JavaRunResponse(BaseModel):
+    success: bool
+    output: str = ""
+    error: str = ""
+    compile_output: str = ""
+    duration_ms: int = Field(ge=0)
+    timed_out: bool = False
+
+
 class ConversationCreateRequest(BaseModel):
     title: str = Field(default="新对话", min_length=1, max_length=120)
     agent_mode: Literal["qa", "learning_path", "quiz", "coach"] = "qa"

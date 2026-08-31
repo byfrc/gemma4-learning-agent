@@ -126,7 +126,7 @@
           <div class="metric-grid">
             <article><div class="metric-icon blue">▤</div><div><b id="fileMetric">0</b><span data-i18n="kb_files">知识库文件</span></div></article>
             <article><div class="metric-icon violet">◫</div><div><b id="chunkMetric">0</b><span data-i18n="kb_chunks">可检索片段</span></div></article>
-            <article><div class="metric-icon green">✦</div><div><b>4</b><span data-i18n="learning_agent">学习智能体</span></div></article>
+            <article><div class="metric-icon green">✦</div><div><b id="agentMetric">4</b><span data-i18n="learning_agent">学习智能体</span></div></article>
           </div>
         </section>
 
@@ -143,6 +143,7 @@
           <button class="tab" data-mode="learning_path" type="button"><span class="tab-icon">↗</span><span><b data-i18n="tab_plan">学习路径</b><small data-i18n="tab_plan_desc">目标拆解与计划</small></span></button>
           <button class="tab" data-mode="quiz" type="button"><span class="tab-icon">?</span><span><b data-i18n="tab_quiz">AI 出题</b><small data-i18n="tab_quiz_desc">检测掌握程度</small></span></button>
           <button class="tab" data-mode="coach" type="button"><span class="tab-icon">◎</span><span><b data-i18n="tab_coach">AI 陪练</b><small data-i18n="tab_coach_desc">苏格拉底式引导</small></span></button>
+          <button id="onlineIdeTab" class="tab is-hidden" data-mode="online_ide" type="button"><span class="tab-icon">{ }</span><span><b data-i18n="tab_ide">在线IDE</b><small data-i18n="tab_ide_desc">编写并运行 Java</small></span></button>
         </nav>
         <section class="chat-card">
           <div class="chat-card-head">
@@ -167,6 +168,38 @@
             </div>
             <div class="composer-hint"><span data-i18n="enter_send">Enter 发送</span><i></i><span data-i18n="shift_enter">Shift + Enter 换行</span><i></i><span data-i18n="privacy">你的资料不会被用于公共训练</span></div>
           </div>
+        </section>
+        <section id="javaIdePanel" class="ide-panel is-hidden">
+          <div class="ide-head">
+            <div>
+              <span class="eyebrow">JAVA PRACTICE WORKSPACE</span>
+              <h2 data-i18n="ide_title">Java 在线IDE</h2>
+              <p data-i18n="ide_desc">编辑 Main.java，运行后在右侧查看标准输出和错误信息。</p>
+            </div>
+            <div class="ide-head-actions">
+              <span class="ide-runtime-badge">Java</span>
+              <button id="resetJavaBtn" class="ide-secondary" type="button" title="恢复示例代码" aria-label="恢复示例代码"><span>↺</span><span data-i18n="ide_reset">重置</span></button>
+              <button id="runJavaBtn" class="ide-primary" type="button"><span>▶</span><span data-i18n="ide_run">运行代码</span></button>
+            </div>
+          </div>
+          <div class="ide-workbench">
+            <section class="ide-editor-pane">
+              <div class="ide-pane-head"><span>Main.java</span><small>Java</small></div>
+              <textarea id="javaCodeEditor" class="ide-editor" spellcheck="false" autocomplete="off" autocapitalize="off" aria-label="Java 代码编辑器"></textarea>
+            </section>
+            <aside class="ide-side-pane">
+              <label class="ide-input-pane">
+                <span class="ide-pane-title" data-i18n="ide_stdin">标准输入</span>
+                <small data-i18n="ide_stdin_desc">需要输入时，每行填写一个值。</small>
+                <textarea id="javaStdin" class="ide-stdin" spellcheck="false" placeholder="例如：42&#10;Gemma4"></textarea>
+              </label>
+              <section class="ide-output-pane">
+                <div class="ide-pane-title-row"><span class="ide-pane-title" data-i18n="ide_output">运行输出</span><button id="clearJavaOutputBtn" class="ide-icon-button" type="button" title="清空输出" aria-label="清空输出">×</button></div>
+                <pre id="javaOutput" class="ide-output" data-placeholder="点击“运行代码”查看结果。"></pre>
+              </section>
+            </aside>
+          </div>
+          <div class="ide-status-row"><span id="javaRunStatus" class="ide-status" data-i18n="ide_ready">准备就绪</span><span data-i18n="ide_shortcut">快捷键：⌘/Ctrl + Enter 运行</span></div>
         </section>
       </section>
     </main>

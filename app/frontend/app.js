@@ -17,6 +17,19 @@ const state = {
   messageCache: new Map()
 
 };
+
+const JAVA_DEFAULT_CODE = `import java.util.Scanner;
+
+public class Main {
+    public static void main(String[] args) {
+        Scanner scanner = new Scanner(System.in);
+        System.out.println("Hello, Gemma4!");
+        if (scanner.hasNextLine()) {
+            System.out.println("你输入的是：" + scanner.nextLine());
+        }
+    }
+}`;
+
 /*语言切换*/
 const LANGUAGE_TEXT = {
 
@@ -166,6 +179,23 @@ const LANGUAGE_TEXT = {
     current_session:"当前会话",
 
     rag_sources:"📚 知识来源",
+
+    tab_ide:"在线IDE",
+    tab_ide_desc:"编写并运行 Java",
+    ide_title:"Java 在线IDE",
+    ide_desc:"编辑 Main.java，运行后在右侧查看标准输出和错误信息。",
+    ide_reset:"重置",
+    ide_run:"运行代码",
+    ide_stdin:"标准输入",
+    ide_stdin_desc:"需要输入时，每行填写一个值。",
+    ide_output:"运行输出",
+    ide_ready:"准备就绪",
+    ide_running:"运行中…",
+    ide_success:"运行成功",
+    ide_compile_failed:"编译失败",
+    ide_error:"运行失败",
+    ide_timeout:"运行超时",
+    ide_shortcut:"快捷键：⌘/Ctrl + Enter 运行",
 
   },
 
@@ -319,6 +349,23 @@ const LANGUAGE_TEXT = {
     brand_desc:"Local AI · Private Knowledge",
 
     rag_sources:"📚 Knowledge Sources",
+
+    tab_ide:"Online IDE",
+    tab_ide_desc:"Write and run Java",
+    ide_title:"Java Online IDE",
+    ide_desc:"Edit Main.java and inspect standard output or errors after running.",
+    ide_reset:"Reset",
+    ide_run:"Run Code",
+    ide_stdin:"Standard Input",
+    ide_stdin_desc:"Enter one value per line when your program needs input.",
+    ide_output:"Run Output",
+    ide_ready:"Ready",
+    ide_running:"Running…",
+    ide_success:"Run completed",
+    ide_compile_failed:"Compilation failed",
+    ide_error:"Run failed",
+    ide_timeout:"Timed out",
+    ide_shortcut:"Shortcut: ⌘/Ctrl + Enter to run",
   }
 
 };
@@ -352,7 +399,7 @@ const SUBJECT_COPY = {
       mode_tip: "基于 Java 课程资料回答问题，并支持连续追问。",
       welcome_title: "今天想从哪里开始？",
       welcome_desc:
-        "你可以围绕 Java 课程资料连续追问，也可以切换到学习路径、AI 出题与 AI 陪练。",
+        "你可以围绕 Java 课程资料连续追问，也可以切换到学习路径、AI 出题、AI 陪练或在线IDE。",
       placeholders: {
         qa: "例如：Java 的继承和封装有什么区别？",
         learning_path: "例如：我想在两周内入门 Java，每天可学 2 小时。",
@@ -388,7 +435,7 @@ const SUBJECT_COPY = {
       mode_tip: "Answer questions based on Java course materials and continue the conversation.",
       welcome_title: "Where would you like to start today?",
       welcome_desc:
-        "You can ask follow-up questions about Java course materials, or switch to Learning Path, AI Quiz and AI Coach.",
+        "You can ask follow-up questions about Java course materials, or use Learning Path, AI Quiz, AI Coach and the Online IDE.",
       placeholders: {
         qa: "For example: what is the difference between inheritance and encapsulation in Java?",
         learning_path: "For example: I want to learn Java in two weeks, 2 hours per day.",
@@ -446,7 +493,13 @@ function updateSubjectChrome() {
     }`;
   }
 
+  const agentMetric = $("#agentMetric");
+  if (agentMetric) {
+    agentMetric.textContent = state.subject === "java" ? "5" : "4";
+  }
+
   updateKnowledgeAccess();
+  updateJavaIdeAccess();
 }
 
 function updateKnowledgeAccess() {
@@ -467,6 +520,46 @@ function updateKnowledgeAccess() {
     sourceDescription.textContent = isAdmin
       ? languagePack.source_desc
       : languagePack.source_readonly;
+  }
+}
+
+function updateJavaIdeAccess() {
+  const isJava = state.subject === "java";
+  const ideTab = $("#onlineIdeTab");
+
+  if (ideTab) {
+    ideTab.classList.toggle("is-hidden", !isJava);
+  }
+
+  updateJavaIdeText();
+
+  if (!isJava && state.mode === "online_ide") {
+    setMode("qa");
+  }
+}
+
+function updateJavaIdeText() {
+  const languagePack = LANGUAGE_TEXT[state.language] || LANGUAGE_TEXT.zh;
+  const stdin = $("#javaStdin");
+  const output = $("#javaOutput");
+
+  if (stdin) {
+    stdin.placeholder =
+      state.language === "zh"
+        ? "例如：42\nGemma4"
+        : "For example: 42\nGemma4";
+  }
+  if (output) {
+    output.dataset.placeholder =
+      state.language === "zh"
+        ? "点击“运行代码”查看结果。"
+        : 'Click "Run Code" to see the result.';
+  }
+  if (languagePack.ide_ready && $("#javaRunStatus")?.dataset.state !== "running") {
+    const status = $("#javaRunStatus");
+    if (status?.dataset.state === "ready") {
+      status.textContent = languagePack.ide_ready;
+    }
   }
 }
 
@@ -689,6 +782,7 @@ function logout() {
   state.subject = "ai";
   state.mode = "qa";
   setMode("qa");
+  resetJavaIde();
   changeLanguage("zh");
 }
 
@@ -735,6 +829,7 @@ function changeLanguage(lang){
       LANGUAGE_TEXT[lang].assistant;
 
     updateSubjectChrome();
+    updateJavaIdeText();
     updateComposerPlaceholder();
     updateModeTitle();
 
@@ -749,7 +844,8 @@ zh:{
 qa:"多轮 AI 问答",
 learning_path:"学习路径规划",
 quiz:"AI 出题",
-coach:"AI 陪练"
+coach:"AI 陪练",
+online_ide:"Java 在线IDE"
 },
 
 
@@ -757,14 +853,15 @@ en:{
 qa:"Multi-turn AI Q&A",
 learning_path:"Learning Path",
 quiz:"AI Quiz",
-coach:"AI Coach"
+coach:"AI Coach",
+online_ide:"Java Online IDE"
 }
 
 };
 
 
 $("#modeHeading").textContent =
-titles[state.language][state.mode];
+titles[state.language][state.mode] || titles[state.language].qa;
 
 }
 /*语言切换函数*/
@@ -810,12 +907,19 @@ function getChat() {
 }
 
 function setMode(mode) {
+  if (mode === "online_ide" && state.subject !== "java") {
+    mode = "qa";
+  }
+
   state.mode = mode;
 
   document.querySelectorAll(".tab").forEach((button) => {
     button.classList.toggle("active", button.dataset.mode === mode);
   });
 
+  const isIde = mode === "online_ide";
+  $("#javaIdePanel")?.classList.toggle("is-hidden", !isIde);
+  $(".chat-card")?.classList.toggle("is-hidden", isIde);
   updateComposerPlaceholder();
   updateModeTitle();
 }
@@ -1433,7 +1537,7 @@ async function newChat() {
     },
     body: JSON.stringify({
       title: "新对话",
-      agent_mode: state.mode,
+      agent_mode: state.mode === "online_ide" ? "qa" : state.mode,
       subject: state.subject,
     }),
   });
@@ -1587,6 +1691,144 @@ async function refreshKnowledge() {
     : `<div class="source">${emptyText}</div>`;
 }
 
+function setJavaRunStatus(stateName, message) {
+  const status = $("#javaRunStatus");
+  if (!status) {
+    return;
+  }
+
+  status.dataset.state = stateName;
+  status.textContent = message;
+  status.className = `ide-status ${stateName}`;
+}
+
+function resetJavaIde() {
+  const editor = $("#javaCodeEditor");
+  const stdin = $("#javaStdin");
+  const output = $("#javaOutput");
+
+  if (editor) {
+    editor.value = JAVA_DEFAULT_CODE;
+  }
+  if (stdin) {
+    stdin.value = "";
+  }
+  if (output) {
+    output.textContent = "";
+    output.classList.remove("has-error");
+  }
+
+  setJavaRunStatus(
+    "ready",
+    (LANGUAGE_TEXT[state.language] || LANGUAGE_TEXT.zh).ide_ready,
+  );
+}
+
+function clearJavaOutput() {
+  const output = $("#javaOutput");
+  if (output) {
+    output.textContent = "";
+    output.classList.remove("has-error");
+  }
+  setJavaRunStatus(
+    "ready",
+    (LANGUAGE_TEXT[state.language] || LANGUAGE_TEXT.zh).ide_ready,
+  );
+}
+
+function setJavaRunButton(isRunning) {
+  const button = $("#runJavaBtn");
+  if (!button) {
+    return;
+  }
+
+  button.disabled = isRunning;
+  const label = button.querySelector("[data-i18n]");
+  if (label) {
+    label.textContent = isRunning
+      ? (LANGUAGE_TEXT[state.language] || LANGUAGE_TEXT.zh).ide_running
+      : (LANGUAGE_TEXT[state.language] || LANGUAGE_TEXT.zh).ide_run;
+  }
+}
+
+async function runJavaCode() {
+  if (state.subject !== "java") {
+    return;
+  }
+
+  const editor = $("#javaCodeEditor");
+  const stdin = $("#javaStdin");
+  const output = $("#javaOutput");
+  const code = editor?.value || "";
+  const input = stdin?.value || "";
+
+  setJavaRunButton(true);
+  setJavaRunStatus(
+    "running",
+    (LANGUAGE_TEXT[state.language] || LANGUAGE_TEXT.zh).ide_running,
+  );
+  if (output) {
+    output.textContent = "";
+    output.classList.remove("has-error");
+  }
+
+  try {
+    const response = await apiFetch("/java/run", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        code,
+        stdin: input,
+      }),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      throw new Error(data.detail || "Java 运行服务不可用。");
+    }
+
+    const languagePack = LANGUAGE_TEXT[state.language] || LANGUAGE_TEXT.zh;
+    const resultParts = [];
+    if (data.compile_output) {
+      resultParts.push(data.compile_output);
+    }
+    if (data.output) {
+      resultParts.push(data.output);
+    }
+    if (data.error) {
+      resultParts.push(data.error);
+    }
+
+    if (output) {
+      output.textContent = resultParts.join("\n") || "程序没有输出。";
+      output.classList.toggle("has-error", !data.success);
+    }
+
+    if (data.timed_out) {
+      setJavaRunStatus("error", languagePack.ide_timeout);
+    } else if (data.success) {
+      setJavaRunStatus(
+        "success",
+        `${languagePack.ide_success} · ${data.duration_ms} ms`,
+      );
+    } else if (data.compile_output) {
+      setJavaRunStatus("error", languagePack.ide_compile_failed);
+    } else {
+      setJavaRunStatus("error", languagePack.ide_error);
+    }
+  } catch (error) {
+    if (output) {
+      output.textContent = error.message;
+      output.classList.add("has-error");
+    }
+    setJavaRunStatus("error", error.message);
+  } finally {
+    setJavaRunButton(false);
+  }
+}
+
 $("#newChatBtn").onclick = async () => {
   try {
     await newChat();
@@ -1625,6 +1867,29 @@ document.querySelectorAll(".tab").forEach((button) => {
   button.onclick = () => {
     setMode(button.dataset.mode);
   };
+});
+
+$("#runJavaBtn").onclick = runJavaCode;
+$("#resetJavaBtn").onclick = resetJavaIde;
+$("#clearJavaOutputBtn").onclick = clearJavaOutput;
+$("#javaCodeEditor").addEventListener("keydown", (event) => {
+  if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+    event.preventDefault();
+    runJavaCode();
+    return;
+  }
+
+  if (event.key === "Tab") {
+    event.preventDefault();
+    const editor = event.currentTarget;
+    const start = editor.selectionStart;
+    const end = editor.selectionEnd;
+    editor.value =
+      editor.value.substring(0, start) +
+      "    " +
+      editor.value.substring(end);
+    editor.selectionStart = editor.selectionEnd = start + 4;
+  }
 });
 
 $("#logoutBtn").onclick = logout;
@@ -1711,6 +1976,7 @@ document.addEventListener("DOMContentLoaded", async () => {
     
   setMode("qa");
   changeLanguage("zh");
+  resetJavaIde();
 
   const savedAuth = getStoredAuth();
   if (savedAuth) {

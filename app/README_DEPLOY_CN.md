@@ -88,6 +88,34 @@ apt-get update
 apt-get install -y libreoffice
 ```
 
+Java 在线IDE需要 JDK：
+
+```bash
+apt-get update
+apt-get install -y openjdk-17-jdk
+javac -version
+java -version
+```
+
+默认配置如下，可按服务器路径和教学场景调整：
+
+```ini
+JAVA_RUN_ENABLED=true
+JAVA_JAVAC=javac
+JAVA_RUNTIME=java
+JAVA_TIMEOUT_SECONDS=5
+JAVA_COMPILE_TIMEOUT_SECONDS=10
+JAVA_MAX_CODE_KB=32
+JAVA_MAX_STDIN_KB=8
+JAVA_MAX_OUTPUT_KB=256
+```
+
+登录 Java 学科后，工作台会显示“在线IDE”模块。学生和管理员都可以编辑并运行
+单文件 `Main.java`，输入放在“标准输入”区域，结果显示在“运行输出”区域。
+执行器会限制代码大小、编译/运行时间和输出大小，并拦截常见文件、网络和进程控制
+API。该执行器适合内网教学环境；正式公网部署建议额外使用独立低权限用户、Docker
+或其他操作系统级沙箱。
+
 扫描型 PDF 的 OCR 为可选能力。安装与你的 Web 环境匹配的 PaddlePaddle 和 PaddleOCR
 后，可在 `.env` 中保持：
 
