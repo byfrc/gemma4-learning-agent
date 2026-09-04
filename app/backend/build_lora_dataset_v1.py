@@ -1,3 +1,7 @@
+import json
+import os
+from pathlib import Path
+
 from app.config import get_settings
 from app.conversation_store import (
     get_messages,
@@ -6,9 +10,6 @@ from app.conversation_store import (
     migrate_legacy_conversation_owners,
 )
 
-import json
-from pathlib import Path
-
 settings = get_settings()
 if init_db(settings.conversation_db_path):
     migrate_legacy_conversation_owners(
@@ -16,7 +17,10 @@ if init_db(settings.conversation_db_path):
         settings.auth_username,
     )
 
-OUT_DIR = Path("/root/autodl-tmp/gemma4_learning_agent/training_data")
+BACKEND_DIR = Path(__file__).resolve().parent
+OUT_DIR = Path(
+    os.getenv("TRAINING_DATA_DIR", str(BACKEND_DIR / "training_data"))
+)
 OUT_DIR.mkdir(exist_ok=True, parents=True)
 
 OUT_FILE = OUT_DIR / "lora_train_v1.jsonl"

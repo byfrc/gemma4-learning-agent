@@ -18,6 +18,52 @@ from .document_parser import (
 )
 
 
+def repair_mojibake_filename(name: str) -> str:
+    """Recover filenames decoded from UTF-8 as GB18030."""
+    if not name or all(ord(char) < 128 for char in name):
+        return name
+
+    try:
+        candidate = name.encode("gb18030").decode("utf-8")
+    except (UnicodeEncodeError, UnicodeDecodeError):
+        return name
+
+    if (
+        candidate == name
+        or "/" in candidate
+        or "\\" in candidate
+        or "\x00" in candidate
+        or Path(candidate).name != candidate
+        or Path(candidate).suffix.lower() != Path(name).suffix.lower()
+    ):
+        return name
+
+    return candidate
+
+
+def repair_mojibake_filenames(knowledge_dir: Path) -> bool:
+    changed = False
+    for path in sorted(knowledge_dir.iterdir()):
+        if not path.is_file():
+            continue
+
+        repaired_name = repair_mojibake_filename(path.name)
+        if repaired_name == path.name:
+            continue
+
+        target = path.with_name(repaired_name)
+        if target.exists():
+            continue
+
+        try:
+            path.rename(target)
+        except OSError:
+            continue
+        changed = True
+
+    return changed
+
+
 @dataclass
 class RetrievedChunk:
     chunk_id: str
@@ -172,7 +218,10 @@ class HybridRAGEngine:
             self.rebuild()
 
     def status(self) -> tuple[int, int, list[str]]:
-        sources = sorted({item["source_file"] for item in self.chunks})
+        sources = sorted({
+            repair_mojibake_filename(item["source_file"])
+            for item in self.chunks
+        })
         return len(sources), len(self.chunks), sources
 
     def retrieve(self, query: str, top_k: int) -> list[RetrievedChunk]:
@@ -198,8 +247,8 @@ class HybridRAGEngine:
                     continue
                 selected.append(RetrievedChunk(
                     chunk_id=item["chunk_id"],
-                    doc_id=item["doc_id"],
-                    source_file=item["source_file"],
+                    doc_id=repair_mojibake_filename(item["doc_id"]),
+                    source_file=repair_mojibake_filename(item["source_file"]),
                     text=item["text"],
                     score=round(float(scores[index]), 4),
                     location=item.get("location"),

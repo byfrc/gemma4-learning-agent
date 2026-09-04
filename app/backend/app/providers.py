@@ -85,25 +85,42 @@ AGENT_PROMPTS = {
 }
 
 
-PROJECT_CONTEXT = """【当前项目部署事实】
+PROJECT_CONTEXT_TEMPLATE = """【当前项目部署事实】
 你正在服务的是“Gemma4 私有学习智能体”。
 
 当前已上线并正在运行的能力：
-1. 前端通过 Nginx 对外提供页面。
+1. 前端由当前部署方式提供页面，本地部署通常使用静态文件服务，服务器部署可使用 Nginx。
 2. FastAPI 提供 /api/chat、学科切换、知识库上传、知识库状态等接口。
 3. RAG 已启用：用户资料上传后会被切分、建立索引；用户提问时，系统检索相关文本块，并将证据拼接到提示词中。
 4. 当前支持 AI / Java 两个学科，知识库、会话和反馈日志按学科分开管理。
-5. 本地模型为 Gemma 4 12B，通过 vLLM 在 8001 端口提供 OpenAI 兼容接口。
-6. 当前推理服务默认加载的是 Gemma 4 基座模型。
+5. 当前模型服务：{model_service}
+6. 当前模型名称：{model_name}
 
 当前尚未上线或尚未启用的能力：
-1. LoRA Adapter 尚未挂载到 vLLM 推理服务。
+1. LoRA Adapter 尚未挂载到当前推理服务。
 2. 当前回答风格主要由系统提示词控制，不是由 LoRA 微调控制。
 3. 目前仍以单机私有部署为主，尚未加入多人协作、权限分级和云端同步。
 
 回答涉及“本项目”“当前系统”“这个平台”“这里的 RAG”“这里的 LoRA”时，必须严格依据上述事实回答。
 不得把尚未启用的 LoRA、长期记忆、自动评估、模型微调等能力说成已经上线。
 """
+
+
+def project_context_for(model_provider: str, model_name: str) -> str:
+    provider = (model_provider or "").strip().lower()
+    model = (model_name or "").strip() or "未明确配置"
+
+    if provider == "ollama":
+        service = "Ollama 本地模型服务，默认监听 11434 端口。"
+    elif provider == "mock":
+        service = "Mock 联调模式，不调用真实大模型。"
+    else:
+        service = "OpenAI-compatible 模型服务；服务器部署通常由 vLLM 提供。"
+
+    return PROJECT_CONTEXT_TEMPLATE.format(
+        model_service=service,
+        model_name=model,
+    )
 
 SUBJECT_CONTEXT = {
     "ai": """【当前学科：人工智能】
@@ -123,6 +140,8 @@ def build_messages(
     agent_mode: str,
     language: str = "zh",
     subject: str = "ai",
+    model_provider: str = "openai_compatible",
+    model_name: str = "",
 ) -> list[dict]:
     current_question = next(
         (
@@ -227,7 +246,12 @@ def build_messages(
     ]
 
     if is_project_question:
-        system_parts.extend([PROJECT_CONTEXT, project_instruction])
+        system_parts.extend(
+            [
+                project_context_for(model_provider, model_name),
+                project_instruction,
+            ]
+        )
     else:
         system_parts.append(project_instruction)
 
@@ -263,12 +287,27 @@ async def call_vllm(
     }
 
     async with httpx.AsyncClient(timeout=300) as client:
-        response = await client.post(
-            f"{settings.vllm_base_url}/chat/completions",
-            json=payload,
-            headers=headers,
-        )
-        response.raise_for_status()
+        try:
+            response = await client.post(
+                f"{settings.vllm_base_url}/chat/completions",
+                json=payload,
+                headers=headers,
+            )
+        except httpx.ConnectError as exc:
+            raise RuntimeError(
+                f"无法连接模型服务：{settings.vllm_base_url}。"
+                "请确认 LM Studio/vLLM 服务正在运行。"
+            ) from exc
+
+        if response.is_error:
+            detail = response.text.strip()
+            if len(detail) > 1000:
+                detail = detail[:1000] + "..."
+            raise RuntimeError(
+                f"模型服务返回 HTTP {response.status_code}"
+                f"{f'：{detail}' if detail else ''}"
+            )
+
         data = response.json()
 
     return data["choices"][0]["message"]["content"].strip()
@@ -307,8 +346,8 @@ def mock_answer(messages: list[dict]) -> str:
     return (
         "当前处于 Mock 联调模式，前后端、RAG 检索与多轮对话链路已正常工作。\n\n"
         f"你的问题：{user}\n\n"
-        "下一步建议：将 .env 的 MODEL_PROVIDER 改为 openai_compatible 并启动 vLLM，"
-        "即可切换到 Gemma 4 12B。"
+        "下一步建议：Windows 本地部署可使用 Ollama 模式，Linux GPU 服务器部署可使用 "
+        "openai_compatible/vLLM。"
     )
 
 

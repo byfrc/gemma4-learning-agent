@@ -3,7 +3,7 @@ from __future__ import annotations
 from threading import RLock
 
 from .config import Settings
-from .rag import HybridRAGEngine
+from .rag import HybridRAGEngine, repair_mojibake_filenames
 from .subjects import normalize_subject
 
 
@@ -18,8 +18,10 @@ class SubjectRAGManager:
         with self._lock:
             engine = self._engines.get(key)
             if engine is None:
+                knowledge_dir = self.settings.knowledge_dir_for(key)
+                renamed = repair_mojibake_filenames(knowledge_dir)
                 engine = HybridRAGEngine(
-                    knowledge_dir=self.settings.knowledge_dir_for(key),
+                    knowledge_dir=knowledge_dir,
                     index_path=self.settings.rag_index_path_for(key),
                     chunk_size=self.settings.rag_chunk_size,
                     overlap=self.settings.rag_chunk_overlap,
@@ -29,6 +31,8 @@ class SubjectRAGManager:
                     office_converter=self.settings.office_converter,
                     office_timeout_seconds=self.settings.office_converter_timeout,
                 )
+                if renamed:
+                    engine.rebuild()
                 self._engines[key] = engine
             return engine
 

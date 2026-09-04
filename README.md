@@ -1,6 +1,6 @@
 # Gemma4 私有学习智能体
 
-本项目是一个基于 **Gemma4、vLLM、FastAPI、RAG 和 LoRA 数据闭环** 的私有学习智能体原型系统。
+本项目是一个基于 **Gemma4、Ollama/LM Studio/vLLM、FastAPI、RAG 和 LoRA 数据闭环** 的私有学习智能体原型系统。
 
 系统面向人工智能与 Java 入门学习场景，支持本地大模型推理、分学科私有知识库问答、学科切换、网页交互、对话历史保存、回答质量反馈，以及高质量样本导出用于后续 LoRA 微调。
 
@@ -27,7 +27,7 @@
 
 | 功能模块 | 说明 |
 |---|---|
-| 本地大模型推理 | 基于 vLLM 部署 Gemma4，实现本地模型调用 |
+| 本地大模型推理 | 支持 Ollama、LM Studio 或 vLLM 部署 Gemma4，实现本地模型调用 |
 | 后端服务 | 使用 FastAPI 提供聊天、知识库、会话和反馈接口 |
 | Web 前端 | 提供轻量级网页交互界面 |
 | 账号系统 | 支持注册、账号密码登录和退出登录；初始账号为管理员，新注册账号为学生 |
@@ -41,7 +41,7 @@
 | 回答评分 | 支持对助手回答进行质量评价 |
 | LoRA 样本标记 | 可将高质量回答标记为训练样本 |
 | 数据集导出 | 支持导出 JSONL 格式 LoRA 微调数据 |
-| 部署脚本 | 提供 vLLM、Nginx、systemd 等部署参考 |
+| 部署脚本 | 提供 Windows 原生 Ollama、LM Studio 一键启动脚本 |
 
 ---
 
@@ -56,9 +56,8 @@
 - `app/backend/data/knowledge/`：示例知识库文件
 - `app/backend/build_lora_dataset_v1.py`：LoRA 数据集导出脚本
 - `app/frontend/`：前端页面代码
-- `app/deploy/`：部署脚本与服务配置
-- `app/training/`：LoRA 训练相关脚本
-- `app/README_DEPLOY_CN.md`：中文部署说明
+- `app/deploy/`：Windows 原生部署脚本
+- `WINDOWS_LOCAL_DEPLOYMENT_GUIDE_CN.md`：Windows 中文部署说明
 - `.gitignore`：Git 忽略规则
 
 ---
@@ -90,7 +89,15 @@
 
 ## 五、Gemma4 本地推理
 
-系统后端通过 OpenAI-compatible 接口调用本地 vLLM 服务。
+系统后端支持多种本地模型服务：
+
+- Windows 原生一键部署使用 Ollama；
+- Windows 也可以使用 LM Studio/Bionic 提供本地 OpenAI-compatible 模型服务；
+- 后端保留 OpenAI-compatible 接口，可用于其他 vLLM 部署环境。
+
+Ollama 示例：
+
+`ollama pull gemma4:e4b`
 
 示例启动命令：
 
@@ -156,49 +163,63 @@ FastAPI 后端会调用该本地模型服务完成回答生成。
 
 ## 九、快速开始
 
-### 1. 克隆项目
+### Windows 原生一键本地部署
 
-`git clone https://github.com/qianmo123321/gemma4-learning-agent.git`
+Windows 10/11 不需要 WSL 或 Ubuntu。项目根目录双击：
 
-`cd gemma4-learning-agent`
+```text
+start_windows.bat
+```
 
-### 2. 安装后端依赖
+默认会检查或通过 `winget` 安装 Python 和 JDK，从 Ollama 官方地址下载并安装
+Ollama，创建 Windows Python 虚拟环境，拉取 `gemma4:e4b`，启动 FastAPI 和前端，并打开：
 
-`cd app/backend`
+```text
+http://127.0.0.1:8080
+```
 
-`pip install -r requirements.txt`
+停止服务：
 
-该依赖包含 PDF 和 PPTX 文档解析支持。旧版 `.ppt` 文件还需要服务器安装
-LibreOffice（提供 `soffice` 命令），例如 Ubuntu/Debian：
+```text
+stop_windows.bat
+```
 
-`apt-get update && apt-get install -y libreoffice`
+详细说明见：
 
-Java 学科的在线IDE需要服务器安装 JDK，并确保 `javac` 和 `java` 在 `PATH` 中：
+`WINDOWS_LOCAL_DEPLOYMENT_GUIDE_CN.md`
 
-`apt-get update && apt-get install -y openjdk-17-jdk`
+### LM Studio/Bionic 本地部署
 
-### 3. 配置环境变量
+如果 Ollama 下载速度较慢，可以使用根目录的：
 
-`cp .env.example .env`
+```text
+start_lmstudio_windows.bat
+```
 
-然后根据自己的模型路径、vLLM 地址、数据库路径、知识库路径和登录账号密码修改 `.env`。
+也可以直接执行：
 
-默认登录账号为 `admin`，默认密码为 `admin123`；正式部署前请修改
-`AUTH_USERNAME`、`AUTH_PASSWORD` 和 `AUTH_SECRET_KEY`。
+```powershell
+.\start_windows.bat -Mode lmstudio
+```
 
-### 4. 启动 vLLM
+该入口会从 LM Studio/Bionic 官方安装地址下载并安装客户端，启动本地
+OpenAI-compatible 服务，并自动加载 LM Studio 中已下载或导入的 Gemma 模型。
+下载、安装和模型加载期间会显示进度状态；如果网络或命令长时间无响应，脚本会
+在超时后输出明确错误并结束。
+如果存在多个 Gemma 模型，可以指定准确的模型 ID：
 
-`vllm serve /path/to/gemma-4-12B-it --host 0.0.0.0 --port 8001 --dtype bfloat16 --max-model-len 8192`
+```powershell
+.\start_windows.bat -Mode lmstudio -LMStudioModel "模型ID"
+```
 
-### 5. 启动后端服务
+### 手动开发运行
 
-`cd app/backend`
+如果不使用一键脚本，可以参考：
 
-`uvicorn app.main:app --host 0.0.0.0 --port 8000`
-
-### 6. 部署前端
-
-前端可以通过 Nginx 或任意静态文件服务部署。
+- `app/backend/requirements.txt`：后端 Python 依赖；
+- `app/backend/.env.example`：环境变量示例；
+- `app/backend/app/main.py`：FastAPI 后端入口；
+- `app/frontend/`：前端静态文件。
 
 用户打开前端后，需要先使用账号密码登录，并在登录页选择 AI 或 Java 学科。
 登录后的请求会固定绑定到所选学科，工作台不再提供顶部学科切换。
@@ -211,10 +232,9 @@ Java 学科的在线IDE需要服务器安装 JDK，并确保 `javac` 和 `java` 
 并拦截常见文件、网络和进程控制 API。在线执行器适合内网教学环境，正式公网部署
 建议进一步放入独立低权限容器或沙箱。
 
-部署说明可参考：
+完整 Windows 部署参数和故障排查见：
 
-- `app/README_DEPLOY_CN.md`
-- `app/deploy/nginx.conf`
+`WINDOWS_LOCAL_DEPLOYMENT_GUIDE_CN.md`
 
 ---
 
@@ -224,7 +244,8 @@ Java 学科的在线IDE需要服务器安装 JDK，并确保 `javac` 和 `java` 
 
 - Gemma4 模型权重；
 - Hugging Face 缓存；
-- Conda 环境；
+- Windows Python 虚拟环境；
+- Ollama 模型文件；
 - SQLite 运行数据库；
 - 私有 `.env` 配置文件；
 - API Key 或访问 Token；

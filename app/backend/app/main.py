@@ -40,6 +40,7 @@ from .java_runner import (
     run_java_code,
 )
 from .providers import build_messages, generate
+from .rag import repair_mojibake_filename
 from .subject_rag import SubjectRAGManager
 from .subjects import get_subject_spec, list_subject_specs, normalize_subject
 from .schemas import (
@@ -87,7 +88,28 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.middleware("http")
+async def add_json_charset(request, call_next):
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+    if (
+        content_type.lower().startswith("application/json")
+        and "charset=" not in content_type.lower()
+    ):
+        response.headers["content-type"] = f"{content_type}; charset=utf-8"
+    return response
+
+
 bearer_scheme = HTTPBearer(auto_error=False)
+
+
+def configured_model_name() -> str:
+    if settings.model_provider == "ollama":
+        return settings.ollama_model
+    if settings.model_provider == "mock":
+        return "mock"
+    return settings.vllm_model
 
 
 def require_auth(
@@ -509,7 +531,7 @@ async def health(
         "subject": subject_key,
         "subject_label": spec.label_zh,
         "provider": settings.model_provider,
-        "model": settings.vllm_model if settings.model_provider == "openai_compatible" else settings.ollama_model,
+        "model": configured_model_name(),
         "knowledge_files": files,
         "knowledge_chunks": chunks,
     }
@@ -594,7 +616,9 @@ async def upload_knowledge(
     if len(payload) > settings.max_upload_mb * 1024 * 1024:
         raise HTTPException(status_code=400, detail=f"文件超过 {settings.max_upload_mb}MB 限制。")
 
-    safe_name = Path(file.filename or "knowledge.txt").name
+    safe_name = repair_mojibake_filename(
+        Path(file.filename or "knowledge.txt").name
+    )
     target = settings.knowledge_dir_for(subject_key) / safe_name
     rag = rag_manager.get(subject_key)
     previous_payload = target.read_bytes() if target.exists() else None
@@ -721,6 +745,8 @@ async def chat(
         payload.agent_mode,
         payload.language,
         subject,
+        settings.model_provider,
+        configured_model_name(),
     )
 
     try:
