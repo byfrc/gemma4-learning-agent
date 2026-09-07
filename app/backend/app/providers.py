@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import httpx
+from typing import Any
 
 from .config import Settings
 from .subjects import get_subject_spec, normalize_subject
@@ -310,7 +311,42 @@ async def call_vllm(
 
         data = response.json()
 
-    return data["choices"][0]["message"]["content"].strip()
+    return extract_openai_chat_content(data)
+
+
+def extract_openai_chat_content(data: dict[str, Any]) -> str:
+    try:
+        choice = data["choices"][0]
+        message = choice.get("message") or {}
+        content = message.get("content") or ""
+        if isinstance(content, list):
+            content = "".join(
+                str(part.get("text", ""))
+                if isinstance(part, dict)
+                else str(part)
+                for part in content
+            )
+        content = str(content).strip()
+        if content:
+            return content
+
+        reasoning = str(message.get("reasoning_content") or "").strip()
+        finish_reason = str(choice.get("finish_reason") or "").strip()
+    except (KeyError, IndexError, TypeError) as exc:
+        raise RuntimeError("模型服务返回格式不符合 OpenAI Chat Completions。") from exc
+
+    if reasoning and finish_reason == "length":
+        raise RuntimeError(
+            "模型只返回了推理过程但没有正式回答，通常是 max_tokens 太小。"
+            "请把页面中的“回答长度”调大后重试。"
+        )
+    if reasoning:
+        raise RuntimeError(
+            "模型返回了 reasoning_content，但没有返回可展示的 content。"
+            "请在 LM Studio 中关闭分离推理内容，或换用非 reasoning 模型。"
+        )
+
+    raise RuntimeError("模型服务返回了空回答。")
 
 
 async def call_ollama(

@@ -181,6 +181,20 @@ http://127.0.0.1:1234/v1
 .\start_windows.bat -Mode lmstudio -LMStudioModel "模型ID"
 ```
 
+默认加载参数为 CPU 模式、2048 上下文、单并发：
+
+```powershell
+.\start_windows.bat -Mode lmstudio -LMStudioGpu off -LMStudioContextLength 2048 -LMStudioParallel 1
+```
+
+这是为了避开部分 Windows 显卡驱动或 Vulkan 后端在 Gemma 4 生成阶段崩溃的问题。
+如果 LM Studio 日志里出现 `Channel Error`、`model has crashed`，或模型在
+`lms ps` 中加载后很快消失，请先使用默认 CPU 模式。确认 CPU 模式可用后，再尝试：
+
+```powershell
+.\start_windows.bat -Mode lmstudio -LMStudioGpu max
+```
+
 也可以修改 LM Studio 服务端口：
 
 ```powershell
@@ -432,6 +446,17 @@ Invoke-WebRequest http://127.0.0.1:1234/v1/models
 如果服务正常但没有模型，请在 LM Studio 中下载或导入 Gemma 模型。脚本会使用
 `lms load` 自动加载匹配到的模型；如果自动识别失败，可在 LM Studio 中查看模型
 ID 后通过 `-LMStudioModel` 指定。
+
+如果网页问答返回 400，且 LM Studio 日志中有 `Channel Error` 或
+`The model has crashed without additional information`，说明请求已经到达模型服务，
+但模型推理进程崩溃了。先运行：
+
+```powershell
+.\start_windows.bat -Mode lmstudio -LMStudioGpu off -LMStudioContextLength 2048 -LMStudioParallel 1
+```
+
+脚本会在启动阶段执行一次最小生成自检；自检失败会直接提示 LM Studio 或 GPU/Vulkan
+兼容性问题，不再等到网页发送问题后才暴露。
 
 如果知识库状态接口中的中文文件名显示为 `鍏ラ棬`、`瀛︿範` 等乱码，请先停止并
 重新启动后端。启动时会自动恢复这类被错误编码的文件名，并重建对应的 RAG 索引；

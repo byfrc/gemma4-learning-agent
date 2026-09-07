@@ -206,6 +206,9 @@ start_lmstudio_windows.bat
 OpenAI-compatible 服务，并自动加载 LM Studio 中已下载或导入的 Gemma 模型。
 下载、安装和模型加载期间会显示进度状态；如果网络或命令长时间无响应，脚本会
 在超时后输出明确错误并结束。
+默认会以更稳妥的 CPU 加载参数启动模型：`--gpu off --context-length 2048 --parallel 1`。
+如果你确认当前显卡和驱动稳定，再通过 `-LMStudioGpu max` 逐步切回 GPU。
+如果出现 `Channel Error` 或 `model has crashed`，优先按 CPU 模式排查。
 如果存在多个 Gemma 模型，可以指定准确的模型 ID：
 
 ```powershell

@@ -10,6 +10,14 @@ param(
     [ValidateRange(1, 65535)]
     [int]$LMStudioPort = 1234,
 
+    [string]$LMStudioGpu = "off",
+
+    [ValidateRange(512, 131072)]
+    [int]$LMStudioContextLength = 2048,
+
+    [ValidateRange(1, 16)]
+    [int]$LMStudioParallel = 1,
+
     [ValidateRange(1, 65535)]
     [int]$ApiPort = 8000,
 
@@ -1078,6 +1086,105 @@ function Wait-LMStudioModel(
         "LM Studio 模型加载超时：$ModelId。请检查 LM Studio 窗口和日志。"
 }
 
+function Test-LMStudioChatCompletion([string]$ModelId) {
+    $startedAt = Get-Date
+    Write-Log "LM Studio 模型：执行生成自检。"
+
+    $payload = @{
+        model = $ModelId
+        messages = @(
+            @{
+                role = "user"
+                content = "Reply only with OK."
+            }
+        )
+        temperature = 0.2
+        max_tokens = 128
+        stream = $false
+    } | ConvertTo-Json -Depth 8
+
+    try {
+        Write-OperationProgress `
+            "LM Studio 生成自检" `
+            $startedAt `
+            "正在调用 $LMStudioBaseUrl/chat/completions"
+
+        $response = Invoke-WebRequest `
+            -UseBasicParsing `
+            -Uri "$LMStudioBaseUrl/chat/completions" `
+            -Method Post `
+            -ContentType "application/json; charset=utf-8" `
+            -Body ([System.Text.Encoding]::UTF8.GetBytes($payload)) `
+            -TimeoutSec 180
+
+        $data = $response.Content | ConvertFrom-Json
+        $message = $data.choices[0].message
+        $content = if ($message.PSObject.Properties["content"]) {
+            [string]$message.content
+        }
+        else {
+            ""
+        }
+        $reasoning = if ($message.PSObject.Properties["reasoning_content"]) {
+            [string]$message.reasoning_content
+        }
+        else {
+            ""
+        }
+
+        $loadedModelIds = @(Get-LMStudioLoadedModelIds $script:LMStudioCli)
+        if ($loadedModelIds -notcontains $ModelId) {
+            Throw-DeploymentError `
+                "LM Studio 生成自检后模型不再处于已加载状态，模型可能刚刚崩溃。"
+        }
+
+        Write-Progress -Activity "LM Studio 生成自检" -Completed
+        if ([string]::IsNullOrWhiteSpace($content) -and
+            -not [string]::IsNullOrWhiteSpace($reasoning)) {
+            Write-Log "LM Studio 生成自检通过；模型返回了 reasoning_content，后端会继续等待正式回答内容。"
+        }
+        else {
+            Write-Log "LM Studio 生成自检通过，耗时 $(Format-Elapsed $startedAt)。"
+        }
+    }
+    catch {
+        Write-Progress -Activity "LM Studio 生成自检" -Completed
+        $detail = $_.Exception.Message
+        $response = $_.Exception.Response
+        if ($response) {
+            try {
+                $stream = $response.GetResponseStream()
+                if ($stream) {
+                    $reader = New-Object System.IO.StreamReader($stream)
+                    $body = $reader.ReadToEnd()
+                    if (-not [string]::IsNullOrWhiteSpace($body)) {
+                        $detail = "$detail；响应内容：$body"
+                    }
+                }
+            }
+            catch {
+            }
+        }
+
+        Throw-DeploymentError `
+            "LM Studio 模型生成自检失败：$detail。日志中如果出现 Channel Error 或 model has crashed，通常是 LM Studio 推理后端、显卡驱动或 GPU/Vulkan 配置与当前 Gemma 模型不兼容。请先使用默认 CPU 模式，或升级 LM Studio 和显卡驱动后再尝试 -LMStudioGpu max。"
+    }
+}
+
+function Unload-LMStudioModels([string]$CliPath) {
+    if (-not $CliPath) {
+        return
+    }
+
+    try {
+        Write-Log "卸载 LM Studio 中已加载的模型，以应用当前加载参数。"
+        Invoke-LMStudioCli $CliPath @("unload", "--all") 60
+    }
+    catch {
+        Write-Log "卸载 LM Studio 已加载模型时出现提示：$($_.Exception.Message)"
+    }
+}
+
 function Load-LMStudioModel(
     [string]$CliPath,
     [string]$ModelId
@@ -1087,8 +1194,20 @@ function Load-LMStudioModel(
             "未找到 lms 命令行工具，无法自动加载 LM Studio 模型 '$ModelId'。"
     }
 
-    Write-Log "加载 LM Studio 模型：$ModelId"
-    Invoke-LMStudioCli $CliPath @("load", "--yes", $ModelId) 180
+    $loadArgs = @(
+        "load",
+        "--yes",
+        "--gpu",
+        $LMStudioGpu,
+        "--context-length",
+        [string]$LMStudioContextLength,
+        "--parallel",
+        [string]$LMStudioParallel,
+        $ModelId
+    )
+
+    Write-Log "加载 LM Studio 模型：$ModelId（GPU=$LMStudioGpu，Context=$LMStudioContextLength，Parallel=$LMStudioParallel）"
+    Invoke-LMStudioCli $CliPath $loadArgs 240
     Wait-LMStudioModel $ModelId 180
 }
 
@@ -1280,7 +1399,9 @@ function Ensure-LMStudio {
     }
 
     $script:LMStudioCli = $cliPath
+    Unload-LMStudioModels $cliPath
     $modelId = Resolve-LMStudioModel $cliPath
+    Test-LMStudioChatCompletion $modelId
     Write-Log "LM Studio 当前模型：$modelId"
 
     return [pscustomobject]@{
