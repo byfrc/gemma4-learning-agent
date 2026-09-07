@@ -55,6 +55,7 @@ $LMStudioProcess = $null
 $LMStudioCli = $null
 $LMStudioServerStartedByLauncher = $false
 $RequiredPythonVersion = "3.12"
+$PythonInstallerVersion = "3.12.10"
 $OllamaInstallerUrl = "https://ollama.com/download/OllamaSetup.exe"
 $LMStudioInstallerUrl = "https://bionic-installers.lmstudio.ai/win32/x64/1.1.1-5/Bionic-1.1.1-5-x64.exe"
 $LMStudioBaseUrl = "http://127.0.0.1:$LMStudioPort/v1"
@@ -260,16 +261,17 @@ function Install-WingetPackage(
     }
 
     Write-Log "通过 winget 安装 $DisplayName。"
+    $wingetLog = Join-Path $LogDir ("winget-" + $PackageId + ".log")
     $wingetArguments = @(
         "install",
         "--id", $PackageId,
         "--exact",
+        "--source", "winget",
         "--accept-source-agreements",
         "--accept-package-agreements",
-        "--locale", "en-US",
         "--silent",
         "--disable-interactivity",
-        "--log", (Join-Path $LogDir ("winget-" + $PackageId + ".log"))
+        "--log", $wingetLog
     )
     if ($Force) {
         $wingetArguments += "--force"
@@ -281,9 +283,91 @@ function Install-WingetPackage(
         "正在安装 $DisplayName" `
         1800
     if ($wingetExitCode -ne 0) {
-        Throw-DeploymentError "$DisplayName 安装失败，winget 退出码：$wingetExitCode"
+        Throw-DeploymentError "$DisplayName 安装失败，winget 退出码：$wingetExitCode。详细日志：$wingetLog"
     }
     Refresh-Path
+}
+
+function Get-PythonInstallerAsset {
+    $architecture = $env:PROCESSOR_ARCHITEW6432
+    if (-not $architecture) {
+        $architecture = $env:PROCESSOR_ARCHITECTURE
+    }
+    if ([string]::IsNullOrWhiteSpace($architecture)) {
+        Throw-DeploymentError "无法识别 Windows 处理器架构。请手动安装 Python $RequiredPythonVersion。"
+    }
+
+    switch ($architecture.ToUpperInvariant()) {
+        "AMD64" {
+            return "amd64"
+        }
+        "ARM64" {
+            return "arm64"
+        }
+        "X86" {
+            return "x86"
+        }
+        default {
+            Throw-DeploymentError "不支持的 Windows 处理器架构：$architecture。请手动安装 Python $RequiredPythonVersion。"
+        }
+    }
+}
+
+function Install-PythonFromOfficialUrl {
+    $asset = Get-PythonInstallerAsset
+    $fileName = if ($asset -eq "x86") {
+        "python-$PythonInstallerVersion.exe"
+    }
+    else {
+        "python-$PythonInstallerVersion-$asset.exe"
+    }
+    $downloadDir = Join-Path $env:TEMP (
+        "gemma4-python-" + [Guid]::NewGuid().ToString("N")
+    )
+    $installerPath = Join-Path $downloadDir $fileName
+    $installerLog = Join-Path $LogDir "python-installer.log"
+    $installerUrl = "https://www.python.org/ftp/python/$PythonInstallerVersion/$fileName"
+
+    New-Item -ItemType Directory -Path $downloadDir -Force | Out-Null
+    try {
+        Write-Log "从 Python 官方地址下载 Python $RequiredPythonVersion：$installerUrl"
+        Download-FileWithProgress `
+            $installerUrl `
+            $installerPath `
+            "正在下载 Python $RequiredPythonVersion"
+
+        Write-Log "Python 安装包下载完成，开始安装。"
+        $installerArguments = @(
+            "/quiet",
+            "InstallAllUsers=0",
+            "PrependPath=1",
+            "Include_launcher=1",
+            "Include_test=0",
+            "/log", $installerLog
+        )
+        $installerExitCode = Invoke-ProcessWithProgress `
+            $installerPath `
+            $installerArguments `
+            $downloadDir `
+            "正在安装 Python $RequiredPythonVersion" `
+            900 `
+            -HideWindow
+
+        if ($installerExitCode -ne 0 -and $installerExitCode -ne 3010) {
+            Throw-DeploymentError `
+                "Python 安装失败，安装程序退出码：$installerExitCode。详细日志：$installerLog"
+        }
+        Refresh-Path
+    }
+    finally {
+        if (Test-Path -LiteralPath $downloadDir) {
+            Remove-Item `
+                -LiteralPath $downloadDir `
+                -Recurse `
+                -Force `
+                -ErrorAction SilentlyContinue
+        }
+    }
 }
 
 function Ensure-Python {
@@ -292,7 +376,14 @@ function Ensure-Python {
         if ($SkipInstall) {
             Throw-DeploymentError "未找到 Python $RequiredPythonVersion。请去掉 -SkipInstall，或手动安装 Python $RequiredPythonVersion。"
         }
-        Install-WingetPackage "Python.Python.3.12" "Python $RequiredPythonVersion" -Force
+        try {
+            Install-WingetPackage "Python.Python.3.12" "Python $RequiredPythonVersion" -Force
+        }
+        catch {
+            Write-Log "winget 安装 Python 失败：$($_.Exception.Message)"
+            Write-Log "改用 Python 官方安装程序。"
+            Install-PythonFromOfficialUrl
+        }
         $info = Get-PythonInfo
     }
 
