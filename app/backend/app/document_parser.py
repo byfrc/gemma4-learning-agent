@@ -13,7 +13,13 @@ from typing import Any
 import numpy as np
 
 
-SUPPORTED_DOCUMENT_SUFFIXES = {
+SUPPORTED_SOURCE_SUFFIXES = {
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".json", ".html",
+    ".css", ".sql", ".yaml", ".yml", ".toml", ".rs", ".go", ".c",
+    ".h", ".cpp", ".cs", ".xml",
+}
+
+SUPPORTED_DOCUMENT_SUFFIXES = SUPPORTED_SOURCE_SUFFIXES | {
     ".txt",
     ".md",
     ".csv",
@@ -52,14 +58,18 @@ def _decode_bytes(raw: bytes) -> str:
     return raw.decode("utf-8", errors="ignore")
 
 
-def _text_section(path: Path) -> list[ParsedSection]:
-    text = normalize_text(_decode_bytes(path.read_bytes()))
+def _text_section(path: Path, preserve_whitespace: bool = False) -> list[ParsedSection]:
+    text = _decode_bytes(path.read_bytes())
+    if preserve_whitespace:
+        text = text.replace("\r\n", "\n").replace("\r", "\n").replace("\x00", "").strip("\n")
+    else:
+        text = normalize_text(text)
     return [
         ParsedSection(
             text=text,
             document_type=path.suffix.lower().lstrip(".") or "text",
         )
-    ] if text else []
+    ] if text.strip() else []
 
 
 def _csv_section(path: Path) -> list[ParsedSection]:
@@ -181,6 +191,8 @@ class DocumentParser:
 
         if suffix in {".txt", ".md"}:
             return _text_section(path)
+        if suffix in SUPPORTED_SOURCE_SUFFIXES:
+            return _text_section(path, preserve_whitespace=True)
         if suffix == ".csv":
             return _csv_section(path)
         if suffix == ".pdf":

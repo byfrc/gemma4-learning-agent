@@ -10,7 +10,20 @@ const state = {
 
   mode:"qa",
 
-  language:"zh",
+  switchingMode: false,
+
+  sending: false,
+  uploading: false,
+  savingSources: false,
+  uploadGeneration: 0,
+  uploadController: null,
+  fileUploads: [],
+  drafts: new Map(),
+  draftSequence: 0,
+  sendGeneration: 0,
+  sendController: null,
+
+  language:"en",
 
   auth: null,
 
@@ -66,6 +79,43 @@ const LANGUAGE_TEXT = {
 
     tab_qa_desc:
       "知识解释与追问",
+
+    tab_project: "项目助手",
+    tab_project_desc: "理解代码与排查错误",
+    project_mode_tip: "上传项目文档，或粘贴代码和报错，获取有依据的建议。",
+    project_welcome_title: "一起梳理你的项目",
+    project_welcome_desc: "点击“文件”、拖入附件或粘贴截图，然后点击发送。可以只发送图片或文件，我会自动分析；也可以添加问题，我会结合文字和附件一起回答。",
+    file_context: "当前对话的文件",
+    choose_sources: "选择已上传的文件",
+    no_file_context: "请上传或选择文件，我会解释它的内容。",
+    source_selection_hint: "勾选当前对话要使用的文件（最多 12 个）。",
+    remove_source: "从当前对话中移除",
+    source_save_failed: "无法更新当前对话的文件。",
+    attach_files: "文件",
+    attach_files_title: "添加文件或图片到待发送消息",
+    drop_files: "拖放文件到这里",
+    drop_files_desc: "添加附件后点击发送；问题可选",
+    upload_hint: "可以只发送图片或文件，自动分析 · 问题可选 · 每个文件最大 30 MB",
+    upload_queued: "等待上传",
+    upload_working: "上传并处理…",
+    upload_ready: "已添加到",
+    upload_failed: "上传失败",
+    upload_unsupported: "不支持此格式。请选择文档、代码或 PNG、JPEG、WebP 图片。",
+    upload_too_large: "文件超过 30 MB。",
+    upload_canceled: "上传已取消。",
+    upload_admin: "请使用管理员账号上传文件。",
+    project_architecture: "解释文件",
+    project_architecture_question: "请解释当前对话所选文件的实际内容。如果是代码，请说明它的用途、执行过程、输入和输出。如果是文档，请概括主题和主要观点。",
+    project_debug: "排查错误",
+    project_debug_question: "帮我排查下面的错误，给出可能原因、最小修改和验证方法：\n\n",
+    project_code: "逐步解释代码",
+    project_code_question: "请逐步解释下面的代码，并给出一个简单示例：\n\n",
+    file_in_context: "回答将使用此文件",
+    file_not_in_context: "未选入当前上下文",
+    use_file: "使用文件",
+    draft_attachments: "待发送附件 · 可直接发送并分析，也可以添加问题",
+    draft_limit: "每条消息最多 12 个附件，其中图片最多 4 张。",
+    image_label: "图片",
 
 
     tab_plan:
@@ -123,22 +173,22 @@ const LANGUAGE_TEXT = {
         "知识库管理",
     
     knowledge_desc:
-        "上传后系统会自动切块并建立混合检索索引。",
+        "选择已有资料，或添加文件和图片后点击发送。问题可选；留空时会自动分析附件。",
 
     select_material:
-        "选择课程资料",
+        "选择文档、代码或图片",
 
     upload_desc:
-        "支持 TXT、MD、CSV、PDF、PPT、PPTX，单个文件不超过 30 MB。",
+        "支持文档、代码和 PNG/JPEG/WebP 图片，每个文件最大 30 MB。可以只发送附件，也可以添加问题。",
 
     upload_button:
-        "上传并构建索引",
+        "添加到消息",
 
     source_title:
         "已入库资料",
 
     source_desc:
-        "上传新文件会自动刷新索引",
+        "勾选此对话需要使用的已有文档",
 
     knowledge_readonly:
         "学生账号仅可查看资料，知识库上传由管理员完成。",
@@ -236,6 +286,43 @@ const LANGUAGE_TEXT = {
     tab_qa_desc:
       "Knowledge Explanation & Follow-up",
 
+    tab_project: "Project Assistant",
+    tab_project_desc: "Understand code and debug errors",
+    project_mode_tip: "Upload project docs, or paste code and errors for grounded guidance.",
+    project_welcome_title: "Let's work through your project",
+    project_welcome_desc: "Click Files, drop an attachment, or paste a screenshot, then press Send. Send just an image or file for an automatic analysis, or add a question and I will use your text and attachments together.",
+    file_context: "Files in this conversation",
+    choose_sources: "Choose uploaded files",
+    no_file_context: "Upload or choose a file, and I will explain its contents.",
+    source_selection_hint: "Select the files to use in this conversation (up to 12).",
+    remove_source: "Remove from this conversation",
+    source_save_failed: "Could not update this conversation's files.",
+    attach_files: "Files",
+    attach_files_title: "Attach files or images to your draft message",
+    drop_files: "Drop files here",
+    drop_files_desc: "Attach files, then Send; a question is optional",
+    upload_hint: "Send an image or file for automatic analysis · Question optional · 30 MB per file",
+    upload_queued: "Queued",
+    upload_working: "Uploading and processing…",
+    upload_ready: "Added to",
+    upload_failed: "Upload failed",
+    upload_unsupported: "Unsupported format. Choose documents, code, or PNG, JPEG, WebP images.",
+    upload_too_large: "File exceeds the 30 MB limit.",
+    upload_canceled: "Upload canceled.",
+    upload_admin: "Sign in as an administrator to upload files.",
+    project_architecture: "Explain file",
+    project_architecture_question: "Explain the actual contents of the files selected for this conversation. For code, describe its purpose, steps, inputs and outputs. For a document, explain its subject and main points.",
+    project_debug: "Debug an error",
+    project_debug_question: "Help me diagnose this error. Give the likely cause, a small fix, and a way to verify it:\n\n",
+    project_code: "Explain code",
+    project_code_question: "Explain this code step by step with a simple example:\n\n",
+    file_in_context: "Included in answers",
+    file_not_in_context: "Not selected for answers",
+    use_file: "Use file",
+    draft_attachments: "Ready to send · Send to analyze, or add a question",
+    draft_limit: "Use up to 12 attachments, including up to 4 images, per message.",
+    image_label: "Image",
+
 
     tab_plan:
       "Learning Path",
@@ -295,22 +382,22 @@ const LANGUAGE_TEXT = {
         "Knowledge Base",
 
     knowledge_desc:
-        "Uploaded documents will be chunked and indexed automatically.",
+        "Choose existing documents or attach files and images, then Send. A question is optional; leave it blank for automatic analysis.",
 
     select_material:
-        "Select Learning Materials",
+        "Select Documents, Code, or Images",
 
     upload_desc:
-        "Supports TXT, MD, CSV, PDF, PPT and PPTX files, up to 30 MB each.",
+        "Documents, source code, and PNG/JPEG/WebP images. Up to 30 MB each. Send attachments alone or add a question.",
 
     upload_button:
-        "Upload and Build Index",
+        "Add to message",
 
     source_title:
         "Indexed Documents",
 
     source_desc:
-        "Uploading new files will refresh the index automatically",
+        "Select existing documents to use in this conversation",
 
     knowledge_readonly:
         "Student accounts can view materials only. Knowledge base uploads are managed by administrators.",
@@ -385,6 +472,7 @@ const SUBJECT_COPY = {
         "你可以围绕人工智能课程资料连续追问，也可以切换到学习路径、AI 出题与 AI 陪练。",
       placeholders: {
         qa: "输入问题；你可以继续追问上一轮内容…",
+        project_assistant: "添加文件或图片后发送。问题可选；留空时会自动分析附件。",
         learning_path: "例如：我想在两周内入门机器学习，每天可学 2 小时。",
         quiz: "例如：围绕 RAG 基础生成 5 道中等难度选择题。",
         coach: "说说你目前学不懂的地方，我会陪你一步步梳理。",
@@ -402,6 +490,7 @@ const SUBJECT_COPY = {
         "你可以围绕 Java 课程资料连续追问，也可以切换到学习路径、AI 出题、AI 陪练或在线IDE。",
       placeholders: {
         qa: "例如：Java 的继承和封装有什么区别？",
+        project_assistant: "添加 Java 源码或截图后发送。问题可选；留空时会自动分析。",
         learning_path: "例如：我想在两周内入门 Java，每天可学 2 小时。",
         quiz: "例如：围绕 Java 面向对象生成 5 道选择题。",
         coach: "例如：我看不懂 Java 的类和对象，帮我一步步理清。",
@@ -421,6 +510,7 @@ const SUBJECT_COPY = {
         "You can ask follow-up questions about AI course materials, or switch to Learning Path, AI Quiz and AI Coach.",
       placeholders: {
         qa: "Ask a question; you can continue from the previous turn.",
+        project_assistant: "Attach a file or image, then Send. Add a question, or leave blank for automatic analysis.",
         learning_path: "For example: I want to learn machine learning in two weeks, 2 hours per day.",
         quiz: "For example: generate 5 medium-difficulty multiple-choice questions about RAG.",
         coach: "Tell me where you are stuck and I will walk through it step by step.",
@@ -438,6 +528,7 @@ const SUBJECT_COPY = {
         "You can ask follow-up questions about Java course materials, or use Learning Path, AI Quiz, AI Coach and the Online IDE.",
       placeholders: {
         qa: "For example: what is the difference between inheritance and encapsulation in Java?",
+        project_assistant: "Attach Java code or a screenshot, then Send. A question is optional.",
         learning_path: "For example: I want to learn Java in two weeks, 2 hours per day.",
         quiz: "For example: generate 5 Java OOP multiple-choice questions.",
         coach: "For example: I do not understand Java classes and objects. Help me step by step.",
@@ -495,7 +586,7 @@ function updateSubjectChrome() {
 
   const agentMetric = $("#agentMetric");
   if (agentMetric) {
-    agentMetric.textContent = state.subject === "java" ? "5" : "4";
+    agentMetric.textContent = state.subject === "java" ? "6" : "5";
   }
 
   updateKnowledgeAccess();
@@ -517,10 +608,139 @@ function updateKnowledgeAccess() {
     readOnlyNotice.classList.toggle("is-hidden", isAdmin);
   }
   if (sourceDescription) {
-    sourceDescription.textContent = isAdmin
-      ? languagePack.source_desc
-      : languagePack.source_readonly;
+    sourceDescription.textContent = languagePack.source_selection_hint;
   }
+  updateComposerControls();
+  renderFileUploads();
+}
+
+function updateComposerControls() {
+  const pack = LANGUAGE_TEXT[state.language];
+  const canUpload = state.auth?.role === "admin";
+  const attach = $("#attachFileBtn");
+  attach.disabled = !canUpload || !getChat() || state.sending || state.uploading || state.savingSources;
+  attach.title = canUpload ? pack.attach_files_title : pack.upload_admin;
+  attach.setAttribute("aria-label", attach.title);
+  const sendButton = $("#sendBtn");
+  sendButton.disabled = state.sending || state.uploading || state.switchingMode || state.savingSources;
+  sendButton.textContent = state.uploading ? pack.upload_working
+    : state.sending ? (state.language === "en" ? "Thinking…" : "生成中…")
+    : (state.language === "en" ? "Send ↗" : "发送 ↗");
+  const uploadButton = $("#uploadForm").querySelector('button[type="submit"]');
+  uploadButton.disabled = !canUpload || !getChat() || state.sending || state.uploading || state.savingSources;
+  uploadButton.textContent = state.uploading ? pack.upload_working : pack.upload_button;
+  $("#chooseSourcesBtn").disabled = !getChat() || state.sending || state.uploading || state.savingSources;
+  $("#userInput").disabled = state.sending;
+  $("#sourceList").querySelectorAll("[data-source-file]").forEach(checkbox => {
+    checkbox.disabled = !getChat() || state.uploading || state.savingSources;
+  });
+  messagesBox.querySelectorAll("[data-file-source]").forEach(button => {
+    button.disabled = state.sending || state.uploading || state.savingSources;
+  });
+}
+
+function renderSourceContext() {
+  const chat = getChat();
+  const files = chat?.source_files || [];
+  const isProject = state.mode === "project_assistant";
+  $("#ragEvidenceControl").classList.toggle("is-hidden", isProject || files.length > 0);
+  $("#ragToggleControl").classList.toggle("is-hidden", isProject || files.length > 0);
+  updateComposerControls();
+}
+
+async function saveConversationSources(files) {
+  const chat = getChat();
+  if (!chat || state.savingSources || state.uploading) return;
+  const token = state.auth?.token;
+  state.savingSources = true;
+  renderSourceContext();
+  try {
+    const response = await apiFetch(`/conversations/${chat.id}/sources`, {
+      method: "PUT", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({source_files: files}),
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : LANGUAGE_TEXT[state.language].source_save_failed);
+    const current = state.chats.find(item => item.id === chat.id);
+    if (current && state.auth?.token === token) current.source_files = data.source_files;
+  } catch (error) {
+    alert(error.message);
+  } finally {
+    state.savingSources = false;
+    renderMessages();
+    await refreshKnowledge().catch(() => {});
+  }
+}
+
+function getDraft(chatId = state.active) {
+  if (!chatId) return null;
+  if (!state.drafts.has(chatId)) state.drafts.set(chatId, {text: "", files: [], error: ""});
+  return state.drafts.get(chatId);
+}
+
+function releaseDraftFiles(files) {
+  for (const file of files) if (file.previewUrl) URL.revokeObjectURL(file.previewUrl);
+}
+
+function restoreDraftInput() {
+  $("#userInput").value = getDraft()?.text || "";
+  resizeComposer();
+  renderFileUploads();
+}
+
+function renderFileUploads() {
+  const draft = getDraft();
+  const pack = LANGUAGE_TEXT[state.language];
+  const files = draft?.files || [];
+  const container = $("#draftAttachments");
+  container.classList.toggle("is-hidden", !files.length);
+  container.innerHTML = files.length ? `<small>${pack.draft_attachments}</small><div class="draft-files">${files.map(record => `
+    <div class="draft-file">
+      ${record.previewUrl ? `<img src="${esc(record.previewUrl)}" alt="${esc(record.file.name)}">` : '<span aria-hidden="true">&#128206;</span>'}
+      <b title="${esc(record.file.name)}">${esc(record.file.name)}</b>
+      <button type="button" data-remove-draft="${record.id}" aria-label="${esc(pack.remove_source + ': ' + record.file.name)}">×</button>
+    </div>`).join("")}</div>` : "";
+  container.querySelectorAll("[data-remove-draft]").forEach(button => {
+    button.onclick = () => {
+      const removed = draft.files.filter(file => file.id === button.dataset.removeDraft);
+      releaseDraftFiles(removed);
+      draft.files = draft.files.filter(file => file.id !== button.dataset.removeDraft);
+      renderFileUploads();
+    };
+  });
+  for (const selector of ["#chatUploadStatus", "#knowledgeUploadStatus"]) {
+    const target = $(selector);
+    target.textContent = draft?.error || "";
+    target.classList.toggle("is-hidden", !draft?.error);
+  }
+}
+
+function stageChatFiles(selectedFiles) {
+  const chat = getChat();
+  if (!chat || state.sending || state.uploading || state.savingSources) return;
+  if (state.auth?.role !== "admin") {
+    alert(LANGUAGE_TEXT[state.language].upload_admin);
+    return;
+  }
+  const draft = getDraft(chat.id);
+  draft.text = $("#userInput").value;
+  draft.error = "";
+  const accepted = new Set($("#chatFileInput").accept.split(","));
+  for (const file of Array.from(selectedFiles || [])) {
+    const suffix = file.name.includes(".") ? `.${file.name.split(".").pop().toLowerCase()}` : "";
+    const isImage = [".png", ".jpg", ".jpeg", ".webp"].includes(suffix);
+    if (!accepted.has(suffix) || file.size > 30 * 1024 * 1024) {
+      draft.error = LANGUAGE_TEXT[state.language][accepted.has(suffix) ? "upload_too_large" : "upload_unsupported"];
+      continue;
+    }
+    if (draft.files.length >= 12 || (isImage && draft.files.filter(record => record.kind === "image").length >= 4)) {
+      draft.error = LANGUAGE_TEXT[state.language].draft_limit;
+      continue;
+    }
+    draft.files.push({id: String(++state.draftSequence), file, kind: isImage ? "image" : "file", previewUrl: isImage ? URL.createObjectURL(file) : null});
+  }
+  renderFileUploads();
+  $("#userInput").focus();
 }
 
 function updateJavaIdeAccess() {
@@ -573,6 +793,12 @@ function updateComposerPlaceholder() {
   }
 
   textarea.placeholder = placeholders[state.mode] || placeholders.qa || "";
+}
+
+function resizeComposer() {
+  const input = $("#userInput");
+  input.style.height = "auto";
+  input.style.height = `${Math.min(input.scrollHeight, 150)}px`;
 }
 
 function cacheConversation(chat) {
@@ -644,15 +870,31 @@ async function refreshAuthProfile() {
 }
 
 function clearAuth(message = "") {
+  state.sendGeneration += 1;
+  state.sendController?.abort();
+  state.sendController = null;
+  state.sending = false;
+  for (const draft of state.drafts.values()) releaseDraftFiles(draft.files);
+  state.drafts.clear();
+  state.uploadGeneration += 1;
+  state.uploadController?.abort();
+  state.uploadController = null;
+  state.uploading = false;
+  state.fileUploads = [];
+  state.savingSources = false;
   state.auth = null;
   state.active = null;
   state.chats = [];
   state.messageCache.clear();
   sessionStorage.removeItem("gemma4_auth");
+  renderFileUploads();
+  renderSourceContext();
+  updateComposerControls();
   showLogin(message);
 }
 
 async function apiFetch(path, options = {}) {
+  const requestToken = state.auth?.token;
   const headers = new Headers(options.headers || {});
   if (state.auth?.token) {
     headers.set("Authorization", `Bearer ${state.auth.token}`);
@@ -663,7 +905,7 @@ async function apiFetch(path, options = {}) {
     headers,
   });
 
-  if (response.status === 401 && state.auth) {
+  if (response.status === 401 && state.auth?.token === requestToken) {
     clearAuth("登录已失效，请重新登录。");
   }
 
@@ -783,7 +1025,7 @@ function logout() {
   state.mode = "qa";
   setMode("qa");
   resetJavaIde();
-  changeLanguage("zh");
+  changeLanguage(state.language);
 }
 
 
@@ -791,6 +1033,10 @@ function logout() {
 function changeLanguage(lang){
 
     state.language = lang;
+    document.documentElement.lang = lang === "en" ? "en" : "zh-CN";
+    try {
+      localStorage.setItem("gemma4_language", lang);
+    } catch {}
 
 
     document
@@ -832,6 +1078,7 @@ function changeLanguage(lang){
     updateJavaIdeText();
     updateComposerPlaceholder();
     updateModeTitle();
+    renderMessages();
 
 }
 
@@ -842,6 +1089,7 @@ const titles={
 
 zh:{
 qa:"多轮 AI 问答",
+project_assistant:"项目助手",
 learning_path:"学习路径规划",
 quiz:"AI 出题",
 coach:"AI 陪练",
@@ -851,6 +1099,7 @@ online_ide:"Java 在线IDE"
 
 en:{
 qa:"Multi-turn AI Q&A",
+project_assistant:"Project Assistant",
 learning_path:"Learning Path",
 quiz:"AI Quiz",
 coach:"AI Coach",
@@ -862,6 +1111,12 @@ online_ide:"Java Online IDE"
 
 $("#modeHeading").textContent =
 titles[state.language][state.mode] || titles[state.language].qa;
+
+const pack = LANGUAGE_TEXT[state.language];
+$("#assistantName").textContent = state.mode === "project_assistant"
+  ? pack.tab_project : pack.assistant;
+$("#modeTip").textContent = state.mode === "project_assistant"
+  ? pack.project_mode_tip : getSubjectCopy().mode_tip;
 
 }
 /*语言切换函数*/
@@ -922,6 +1177,9 @@ function setMode(mode) {
   $(".chat-card")?.classList.toggle("is-hidden", isIde);
   updateComposerPlaceholder();
   updateModeTitle();
+  if (!getChat()?.messages?.length) {
+    renderMessages();
+  }
 }
 
 function renderHistory() {
@@ -1359,37 +1617,75 @@ function bindQualityActions() {
 }
 
 
+function hasMessageText(message) {
+  return Boolean(message.content) && !(message.attachments?.length === 1 && message.content === `Attached file: ${message.attachments[0].source_file}`);
+}
+
+function fileMessageHtml(attachments, chat, showText = false) {
+  const pack = LANGUAGE_TEXT[state.language];
+  return `<section class="message user file-message"><span class="who">Student</span>
+    <div class="file-attachments">${attachments.map(file => {
+      const name = file.source_file;
+      const isImage = file.kind === "image";
+      const selected = file.pending || (chat.source_files || []).includes(name);
+      const extension = name.includes(".") ? name.split(".").pop().toUpperCase().slice(0, 8) : "FILE";
+      const size = typeof file.size_bytes === "number"
+        ? (file.size_bytes < 1024 ? `${file.size_bytes} B` : file.size_bytes < 1048576 ? `${(file.size_bytes / 1024).toFixed(1)} KB` : `${(file.size_bytes / 1048576).toFixed(1)} MB`)
+        : "";
+      const action = selected ? pack.remove_source : pack.use_file;
+      return `<div class="file-card ${selected || isImage ? "is-selected" : ""}">
+        ${isImage && file.preview_data_url ? `<img class="file-card-preview" src="${esc(file.preview_data_url)}" alt="${esc(name)}">` : `<span class="file-card-icon" aria-hidden="true">${esc(extension)}</span>`}
+        <span class="file-card-info"><b title="${esc(name)}">${esc(name)}</b><small>${size ? `${size} · ` : ""}${isImage ? pack.image_label : selected ? pack.file_in_context : pack.file_not_in_context}</small></span>
+        ${isImage ? "" : `<button type="button" data-file-source="${esc(name)}" aria-label="${esc(action + ': ' + name)}" title="${esc(action)}" ${state.sending || state.uploading || state.savingSources ? "disabled" : ""}>${selected ? "×" : esc(pack.use_file)}</button>`}
+      </div>`;
+    }).join("")}</div>${showText ? '<div class="bubble" data-message-content></div>' : ""}</section>`;
+}
+
 function renderMessages() {
   const chat = getChat();
+  renderSourceContext();
+  renderFileUploads();
 
   if (!chat) {
     messagesBox.innerHTML = "";
     return;
   }
 
-  if (!chat.messages || !chat.messages.length) {
+  const messages = chat.messages || [];
+  const textMessages = messages.filter(hasMessageText);
+  if (!textMessages.length) {
     const copy = getSubjectCopy();
+    const pack = LANGUAGE_TEXT[state.language];
+    const isProject = state.mode === "project_assistant";
     messagesBox.innerHTML = `
       <div class="welcome">
-        <span class="eyebrow">Gemma4 Learning Agent</span>
-        <h3>${copy.welcome_title}</h3>
-        <p>${copy.welcome_desc}</p>
+        <span class="eyebrow">${isProject ? pack.tab_project : "Gemma4 Learning Agent"}</span>
+        <h3>${isProject ? pack.project_welcome_title : copy.welcome_title}</h3>
+        <p>${isProject ? pack.project_welcome_desc : copy.welcome_desc}</p>
+        ${isProject ? `<div class="suggestions">
+          <button type="button" data-q="${esc(pack.project_architecture_question)}">${pack.project_architecture}</button>
+          <button type="button" data-q="${esc(pack.project_debug_question)}">${pack.project_debug}</button>
+          <button type="button" data-q="${esc(pack.project_code_question)}">${pack.project_code}</button>
+        </div>` : ""}
       </div>
     `;
 
-    document.querySelectorAll("[data-q]").forEach((button) => {
-      button.onclick = () => {
-        $("#userInput").value = button.dataset.q;
-        $("#userInput").focus();
-      };
-    });
   } else {
-    messagesBox.innerHTML = chat.messages
+    messagesBox.innerHTML = "";
+  }
+
+  // Older conversations and previously uploaded files have a saved selection
+  // but no upload message yet. Show those files without changing their history.
+  const recordedFiles = new Set(messages.flatMap(message => (message.attachments || []).map(file => file.source_file)));
+  const existingFiles = (chat.source_files || []).filter(name => !recordedFiles.has(name));
+  if (existingFiles.length) messagesBox.innerHTML += fileMessageHtml(existingFiles.map(source_file => ({source_file})), chat);
+
+  messagesBox.innerHTML += messages
       .map(
-        (message) => `
+        (message) => message.attachments?.length ? fileMessageHtml(message.attachments, chat, hasMessageText(message)) : `
           <section class="message ${message.role}">
             <span class="who">
-              ${message.role === "user" ? "Student" : "Gemma4 study-agent"}
+              ${message.role === "user" ? "Student" : chat.agent_mode === "project_assistant" ? LANGUAGE_TEXT[state.language].tab_project : "Gemma4 study-agent"}
             </span>
             <div class="bubble" data-message-content></div>
             ${
@@ -1408,7 +1704,7 @@ function renderMessages() {
     );
 
 
-    chat.messages.forEach((message, index)=>{
+    textMessages.forEach((message, index)=>{
 
       const bubble = bubbles[index];
 
@@ -1444,19 +1740,35 @@ function renderMessages() {
 
     });
 
-  }
+  document.querySelectorAll("[data-q]").forEach((button) => {
+    button.onclick = () => {
+      const input = $("#userInput");
+      input.value = button.dataset.q.trimEnd();
+      const draft = getDraft();
+      if (draft) draft.text = input.value;
+      resizeComposer();
+      input.focus();
+      input.scrollTop = 0;
+    };
+  });
+  messagesBox.querySelectorAll("[data-file-source]").forEach(button => {
+    button.onclick = () => {
+      const files = chat.source_files || [];
+      const name = button.dataset.fileSource;
+      saveConversationSources(files.includes(name) ? files.filter(file => file !== name) : [...files, name]);
+    };
+  });
   bindQualityActions();
   messagesBox.scrollTop = messagesBox.scrollHeight;
 }
 
-function addMessage(message) {
-  const chat = getChat();
-
+function addMessage(message, chat = getChat()) {
   if (!chat) {
     return;
   }
 
   chat.messages.push(message);
+  cacheConversation(chat);
   renderMessages();
 }
 
@@ -1479,6 +1791,7 @@ async function loadConversationList(subject = state.subject) {
       subject: item.subject || subject,
       title: item.title,
       agent_mode: item.agent_mode,
+      source_files: item.source_files || [],
       created_at: item.created_at,
       updated_at: item.updated_at,
       messages: cachedMessages,
@@ -1502,12 +1815,14 @@ async function openConversation(conversationId) {
     subject: detail.subject || state.subject,
     title: detail.title,
     agent_mode: detail.agent_mode || "qa",
+    source_files: detail.source_files || [],
     created_at: detail.created_at,
     updated_at: detail.updated_at,
     messages: (detail.messages || []).map((message) => ({
       message_id: message.message_id,
       role: message.role,
       content: message.content,
+      attachments: message.attachments || [],
       evidence: message.evidence || [],
       model_used: message.model_used || null,
       quality_feedback: message.quality_feedback || null,
@@ -1523,6 +1838,7 @@ async function openConversation(conversationId) {
   }
 
   state.active = chat.id;
+  restoreDraftInput();
   cacheConversation(chat);
   setMode(chat.agent_mode);
   renderHistory();
@@ -1554,6 +1870,7 @@ async function newChat() {
     subject: item.subject || state.subject,
     title: item.title,
     agent_mode: item.agent_mode,
+    source_files: item.source_files || [],
     created_at: item.created_at,
     updated_at: item.updated_at,
     messages: [],
@@ -1561,6 +1878,7 @@ async function newChat() {
 
   state.chats.unshift(chat);
   state.active = chat.id;
+  restoreDraftInput();
   cacheConversation(chat);
 
   renderHistory();
@@ -1573,78 +1891,85 @@ async function send() {
   const input = $("#userInput");
   const raw = input.value.trim();
   const chat = getChat();
+  if (!chat || state.sending || state.switchingMode || state.uploading || state.savingSources) return;
 
-  if (!raw || !chat) {
-    return;
-  }
-
+  const draft = getDraft(chat.id);
+  const files = [...draft.files];
+  if (!raw && !files.length) return;
+  const mode = state.mode;
+  const subject = state.subject;
+  const token = state.auth?.token;
+  const generation = ++state.sendGeneration;
+  const controller = new AbortController();
+  const localId = `pending-${generation}`;
+  const attachments = files.map(record => ({source_file: record.file.name, size_bytes: record.file.size, kind: record.kind, preview_data_url: record.previewUrl, pending: true}));
+  const payload = {
+    conversation_id: chat.id, messages: raw ? [{role: "user", content: raw}] : [], agent_mode: mode,
+    source_files: chat.source_files || [], language: state.language, subject,
+    use_rag: $("#useRag").checked, top_k: Number($("#topK").value),
+    temperature: 0.35, max_tokens: Number($("#maxTokens").value),
+  };
+  draft.text = "";
+  draft.files = [];
+  draft.error = "";
   input.value = "";
-
-  addMessage({
-    role: "user",
-    content: raw,
-  });
-
-  const button = $("#sendBtn");
-  button.disabled = true;
-  button.textContent = "生成中…";
+  resizeComposer();
+  state.sending = true;
+  state.sendController = controller;
+  addMessage({localId, role: "user", content: raw, attachments}, chat);
+  updateComposerControls();
+  let succeeded = false;
+  let retained = false;
 
   try {
-    const response = await apiFetch(`/chat`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        conversation_id: chat.id,
-        messages: [
-          {
-            role: "user",
-            content: raw,
-          },
-        ],
-        agent_mode: state.mode,
-        language: state.language,
-        subject: state.subject,
-        use_rag: $("#useRag").checked,
-        top_k: Number($("#topK").value),
-        temperature: 0.35,
-        max_tokens: Number($("#maxTokens").value),
-      }),
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.detail || "模型请求失败。");
+    let response;
+    if (files.length) {
+      const body = new FormData();
+      body.append("payload", JSON.stringify(payload));
+      files.forEach(record => body.append("files", record.file));
+      response = await apiFetch("/chat/attachments", {method: "POST", body, signal: controller.signal});
+    } else {
+      response = await apiFetch("/chat", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(payload), signal: controller.signal});
     }
+    const data = await response.json();
+    if (!response.ok) throw new Error(typeof data.detail === "string" ? data.detail : LANGUAGE_TEXT[state.language].upload_failed);
+    if (state.sendGeneration !== generation || state.auth?.token !== token) return;
 
-    chat.title = data.title || chat.title;
-    chat.agent_mode = state.mode;
-    chat.subject = data.subject || chat.subject || state.subject;
-
-    addMessage({
-      message_id: data.assistant_message_id || null,
-      role: "assistant",
-      content: data.answer,
-      evidence: data.evidence || [],
-      model_used: data.model_used || null,
-      quality_feedback: null,
+    const current = state.chats.find(item => item.id === chat.id) || chat;
+    current.messages = current.messages.filter(message => message.localId !== localId);
+    const savedUser = data.user_message || {role: "user", content: raw, attachments};
+    if (!savedUser.message_id || !current.messages.some(message => message.message_id === savedUser.message_id)) current.messages.push(savedUser);
+    if (!data.assistant_message_id || !current.messages.some(message => message.message_id === data.assistant_message_id)) current.messages.push({
+      message_id: data.assistant_message_id || null, role: "assistant", content: data.answer,
+      evidence: data.evidence || [], model_used: data.model_used || null, quality_feedback: null,
     });
-
-    cacheConversation(chat);
-
-    await loadConversationList(state.subject);
+    current.title = data.title || current.title;
+    current.agent_mode = mode;
+    current.source_files = data.source_files || current.source_files || [];
+    cacheConversation(current);
+    succeeded = true;
+    await loadConversationList(state.subject).catch(() => {});
     renderMessages();
+    if (files.length) await refreshKnowledge().catch(() => {});
   } catch (error) {
-    addMessage({
-      role: "assistant",
-      content: `### 模型调用失败\n${error.message}\n\n请检查 FastAPI、vLLM 与模型服务日志。`,
-      evidence: [],
-    });
+    if (state.sendGeneration === generation && state.auth?.token === token) {
+      const current = state.chats.find(item => item.id === chat.id) || chat;
+      current.messages = current.messages.filter(message => message.localId !== localId);
+      cacheConversation(current);
+      draft.text = raw;
+      draft.files = files;
+      draft.error = error.message;
+      retained = true;
+      if (state.active === chat.id) restoreDraftInput();
+      renderMessages();
+    }
   } finally {
-    button.disabled = false;
-    button.textContent = "发送 ↗";
+    if (succeeded || !retained) releaseDraftFiles(files);
+    if (state.sendGeneration === generation) {
+      state.sending = false;
+      state.sendController = null;
+      updateComposerControls();
+    }
   }
 }
 
@@ -1686,9 +2011,14 @@ async function refreshKnowledge() {
 
   $("#sourceList").innerHTML = data.sources.length
     ? data.sources
-        .map((source) => `<div class="source">${esc(source)}</div>`)
+        .map((source) => `<label class="source source-choice"><input type="checkbox" data-source-file="${esc(source)}" ${(getChat()?.source_files || []).includes(source) ? "checked" : ""} ${!getChat() || state.uploading || state.savingSources ? "disabled" : ""}><span>${esc(source)}</span></label>`)
         .join("")
     : `<div class="source">${emptyText}</div>`;
+  $("#sourceList").querySelectorAll("[data-source-file]").forEach(checkbox => {
+    checkbox.onchange = () => saveConversationSources(
+      Array.from($("#sourceList").querySelectorAll("[data-source-file]:checked"), node => node.dataset.sourceFile)
+    );
+  });
 }
 
 function setJavaRunStatus(stateName, message) {
@@ -1841,6 +2171,7 @@ $("#knowledgeBtn").onclick = async () => {
   await refreshKnowledge();
   $("#knowledgeDialog").showModal();
 };
+$("#chooseSourcesBtn").onclick = () => $("#knowledgeBtn").onclick();
 
 $("#closeKnowledgeBtn").onclick = () => {
   $("#knowledgeDialog").close();
@@ -1848,6 +2179,18 @@ $("#closeKnowledgeBtn").onclick = () => {
 
 $("#sendBtn").onclick = send;
 
+$("#userInput").addEventListener("input", () => {
+  const draft = getDraft();
+  if (draft) draft.text = $("#userInput").value;
+  resizeComposer();
+});
+$("#userInput").addEventListener("paste", (event) => {
+  const files = Array.from(event.clipboardData?.files || []);
+  if (files.length) {
+    event.preventDefault();
+    stageChatFiles(files);
+  }
+});
 $("#userInput").addEventListener("keydown", (event) => {
   if (event.key === "Enter" && !event.shiftKey) {
     event.preventDefault();
@@ -1864,8 +2207,30 @@ $("#maxTokens").oninput = (event) => {
 };
 
 document.querySelectorAll(".tab").forEach((button) => {
-  button.onclick = () => {
-    setMode(button.dataset.mode);
+  button.onclick = async () => {
+    if (state.switchingMode) return;
+    const previousMode = state.mode;
+    const nextMode = button.dataset.mode;
+    const chat = getChat();
+    setMode(nextMode);
+    if (chat && chat.agent_mode !== nextMode && nextMode !== "online_ide" &&
+        (nextMode === "project_assistant" || chat.agent_mode === "project_assistant")) {
+      state.switchingMode = true;
+      updateComposerControls();
+      $("#newChatBtn").disabled = true;
+      document.querySelectorAll(".tab").forEach(tab => { tab.disabled = true; });
+      try {
+        await newChat();
+      } catch (error) {
+        setMode(previousMode);
+        alert(error.message);
+      } finally {
+        state.switchingMode = false;
+        updateComposerControls();
+        $("#newChatBtn").disabled = false;
+        document.querySelectorAll(".tab").forEach(tab => { tab.disabled = false; });
+      }
+    }
   };
 });
 
@@ -1898,45 +2263,60 @@ $("#registerForm").onsubmit = submitRegistration;
 $("#showRegisterBtn").onclick = () => setAuthMode("register");
 $("#backToLoginBtn").onclick = () => setAuthMode("login");
 
+$("#attachFileBtn").onclick = () => $("#chatFileInput").click();
+$("#chatFileInput").onchange = async (event) => {
+  const files = Array.from(event.target.files || []);
+  event.target.value = "";
+  stageChatFiles(files);
+};
+
+const chatDropTarget = $(".chat-card");
+let chatDragDepth = 0;
+const isFileDrag = event => Array.from(event.dataTransfer?.types || []).includes("Files");
+const hideDropOverlay = () => {
+  chatDragDepth = 0;
+  $("#chatDropOverlay").classList.add("is-hidden");
+};
+chatDropTarget.addEventListener("dragenter", event => {
+  if (!isFileDrag(event)) return;
+  event.preventDefault();
+  chatDragDepth += 1;
+  if (state.auth?.role === "admin" && !state.uploading) {
+    $("#chatDropOverlay").classList.remove("is-hidden");
+  }
+});
+chatDropTarget.addEventListener("dragover", event => {
+  if (!isFileDrag(event)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = state.auth?.role === "admin" && !state.uploading ? "copy" : "none";
+});
+chatDropTarget.addEventListener("dragleave", event => {
+  if (!isFileDrag(event)) return;
+  chatDragDepth = Math.max(0, chatDragDepth - 1);
+  if (chatDragDepth === 0) hideDropOverlay();
+});
+chatDropTarget.addEventListener("drop", async event => {
+  if (!isFileDrag(event)) return;
+  event.preventDefault();
+  hideDropOverlay();
+  stageChatFiles(event.dataTransfer.files);
+});
+// A file dropped outside the chat must not replace the page in the browser.
+document.addEventListener("dragover", event => {
+  if (isFileDrag(event)) event.preventDefault();
+});
+document.addEventListener("drop", event => {
+  if (isFileDrag(event)) {
+    event.preventDefault();
+    hideDropOverlay();
+  }
+});
+
 $("#uploadForm").onsubmit = async (event) => {
   event.preventDefault();
-
-  const file = $("#knowledgeFile").files[0];
-
-  if (!file) {
-    return;
-  }
-
-  const formData = new FormData();
-  formData.append("file", file);
-
-  const button = event.currentTarget.querySelector("button");
-  button.disabled = true;
-  button.textContent = "索引构建中…";
-
-  try {
-    const response = await apiFetch(
-      `/knowledge/upload?subject=${encodeURIComponent(state.subject)}`,
-      {
-      method: "POST",
-      body: formData,
-      },
-    );
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.detail || "上传失败");
-    }
-
-    await refreshKnowledge();
-    alert(data.message);
-  } catch (error) {
-    alert(`上传失败：${error.message}`);
-  } finally {
-    button.disabled = false;
-    button.textContent = "上传并重建索引";
-  }
+  stageChatFiles($("#knowledgeFile").files);
+  $("#knowledgeDialog").close();
+  $("#knowledgeFile").value = "";
 };
 
 async function boot() {
@@ -1975,7 +2355,13 @@ document.addEventListener("DOMContentLoaded", async () => {
   };
     
   setMode("qa");
-  changeLanguage("zh");
+  try {
+    const savedLanguage = localStorage.getItem("gemma4_language");
+    if (savedLanguage === "zh" || savedLanguage === "en") {
+      state.language = savedLanguage;
+    }
+  } catch {}
+  changeLanguage(state.language);
   resetJavaIde();
 
   const savedAuth = getStoredAuth();

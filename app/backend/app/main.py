@@ -3,8 +3,11 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
+import tempfile
+import uuid
 
-from fastapi import Depends, FastAPI, File, HTTPException, Response, UploadFile
+from fastapi import Depends, FastAPI, File, Form, HTTPException, Response, UploadFile
+from pydantic import ValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
@@ -32,8 +35,10 @@ from .conversation_store import (
     update_conversation,
     get_message_feedback,
     save_message_feedback,
+    set_conversation_sources,
 )
 from .document_parser import DocumentParseError, SUPPORTED_DOCUMENT_SUFFIXES
+from .chat_images import IMAGE_SUFFIXES, MAX_IMAGES, add_history_images, image_path, prepare_image
 from .java_runner import (
     JavaRunnerError,
     JavaToolchainError,
@@ -44,12 +49,14 @@ from .rag import repair_mojibake_filename
 from .subject_rag import SubjectRAGManager
 from .subjects import get_subject_spec, list_subject_specs, normalize_subject
 from .schemas import (
+    AttachmentChatRequest,
     ChatRequest,
     ChatResponse,
     ConversationCreateRequest,
     ConversationDetail,
     ConversationRenameRequest,
     ConversationSummary,
+    ConversationSourcesRequest,
     Evidence,
     FeedbackRequest,
     JavaRunRequest,
@@ -313,6 +320,29 @@ async def rename_conversation(
     if conversation is None:
         raise HTTPException(status_code=404, detail="会话不存在。")
 
+    return ConversationSummary(**conversation)
+
+
+def validate_source_files(subject: str, source_files: list[str]) -> list[str]:
+    files = list(dict.fromkeys(source_files))
+    available = set(rag_manager.status(subject)[2])
+    missing = [name for name in files if name not in available]
+    if missing:
+        raise HTTPException(status_code=400, detail="Selected files are not in this Knowledge Base: " + ", ".join(missing))
+    return files
+
+
+@app.put("/api/conversations/{conversation_id}/sources", response_model=ConversationSummary)
+async def select_conversation_sources(
+    conversation_id: str,
+    payload: ConversationSourcesRequest,
+    user: AuthSession = Depends(require_auth),
+):
+    conversation = get_conversation_for_user(conversation_id, user)
+    files = validate_source_files(conversation["subject"], payload.source_files)
+    conversation = set_conversation_sources(settings.conversation_db_path, conversation_id, files, user.username)
+    if conversation is None:
+        raise HTTPException(status_code=404, detail="Conversation no longer exists.")
     return ConversationSummary(**conversation)
 
 
@@ -603,13 +633,15 @@ async def upload_knowledge(
     file: UploadFile = File(...),
     subject: str | None = None,
     user: AuthSession = Depends(require_admin),
+    conversation_id: str | None = None,
 ):
     subject_key = subject_for_user(subject, user)
+    conversation = get_conversation_for_user(conversation_id, user) if conversation_id else None
     suffix = Path(file.filename or "").suffix.lower()
     if suffix not in SUPPORTED_DOCUMENT_SUFFIXES:
         raise HTTPException(
             status_code=400,
-            detail="支持 TXT、MD、CSV、PDF、PPT、PPTX 文件。",
+            detail="Supported file types / 支持格式: " + ", ".join(sorted(SUPPORTED_DOCUMENT_SUFFIXES)),
         )
 
     payload = await file.read()
@@ -619,6 +651,8 @@ async def upload_knowledge(
     safe_name = repair_mojibake_filename(
         Path(file.filename or "knowledge.txt").name
     )
+    if conversation and safe_name not in conversation["source_files"] and len(conversation["source_files"]) >= 12:
+        raise HTTPException(status_code=400, detail="Choose at most 12 files for a conversation.")
     target = settings.knowledge_dir_for(subject_key) / safe_name
     rag = rag_manager.get(subject_key)
     previous_payload = target.read_bytes() if target.exists() else None
@@ -645,12 +679,26 @@ async def upload_knowledge(
         raise HTTPException(status_code=500, detail=f"知识库重建失败：{exc}") from exc
 
     files, chunks, sources = rag_manager.status(subject_key)
+    selected_files = []
+    attachment_message = None
+    if conversation_id:
+        conversation = get_conversation_for_user(conversation_id, user)
+        selected_files = list(dict.fromkeys([*conversation["source_files"], safe_name]))
+        set_conversation_sources(settings.conversation_db_path, conversation_id, selected_files, user.username)
+        attachment_message = add_message(
+            settings.conversation_db_path, conversation_id,
+            role="user", content=f"Attached file: {safe_name}", username=user.username,
+            attachments=[{"source_file": safe_name, "size_bytes": len(payload)}],
+        )
     return {
         "message": "上传成功，已完成知识库重建。",
         "subject": subject_key,
         "file_count": files,
         "chunk_count": chunks,
         "sources": sources,
+        "source_file": safe_name,
+        "source_files": selected_files,
+        "attachment_message": attachment_message,
     }
 
 
@@ -658,6 +706,112 @@ async def upload_knowledge(
 async def chat(
     payload: ChatRequest,
     user: AuthSession = Depends(require_auth),
+):
+    return await complete_chat(payload, user)
+
+
+@app.post("/api/chat/attachments", response_model=ChatResponse)
+async def chat_with_attachments(
+    payload: str = Form(...),
+    files: list[UploadFile] = File(...),
+    user: AuthSession = Depends(require_admin),
+):
+    try:
+        request = AttachmentChatRequest.model_validate_json(payload)
+    except ValidationError as exc:
+        raise HTTPException(status_code=422, detail=json.loads(exc.json())) from exc
+    if not request.conversation_id:
+        raise HTTPException(status_code=400, detail="Start a conversation before attaching files.")
+    conversation = get_conversation_for_user(request.conversation_id, user)
+    subject = subject_for_user(request.subject, user)
+    if not 1 <= len(files) <= 12:
+        raise HTTPException(status_code=400, detail="Attach up to 12 files per message.")
+
+    attachments, images, documents, image_files = [], [], {}, []
+    rag = rag_manager.get(subject)
+    staging_root = settings.conversation_db_path.parent / "chat_staging"
+    staging_root.mkdir(parents=True, exist_ok=True)
+    # Validate the entire message before changing its selected files or history.
+    with tempfile.TemporaryDirectory(prefix="message-", dir=staging_root) as temporary:
+        temporary_path = Path(temporary).resolve()
+        if not temporary_path.is_relative_to(staging_root.resolve()):
+            raise RuntimeError("Invalid attachment staging directory.")
+        for upload in files:
+            name = repair_mojibake_filename(Path(upload.filename or "attachment").name)
+            suffix = Path(name).suffix.lower()
+            if suffix not in SUPPORTED_DOCUMENT_SUFFIXES | IMAGE_SUFFIXES:
+                raise HTTPException(status_code=400, detail=f"Unsupported attachment: {name}")
+            content = await upload.read(settings.max_upload_mb * 1024 * 1024 + 1)
+            if not content or len(content) > settings.max_upload_mb * 1024 * 1024:
+                raise HTTPException(status_code=400, detail=f"{name}: use a non-empty file up to {settings.max_upload_mb} MB.")
+            metadata = {"source_file": name, "size_bytes": len(content), "kind": "file"}
+            if suffix in IMAGE_SUFFIXES:
+                if len(images) >= MAX_IMAGES:
+                    raise HTTPException(status_code=400, detail=f"Attach up to {MAX_IMAGES} images per message.")
+                try:
+                    model_image, preview = prepare_image(content)
+                except ValueError as exc:
+                    raise HTTPException(status_code=400, detail=f"{name}: {exc}") from exc
+                attachment_id = uuid.uuid4().hex
+                metadata.update(kind="image", attachment_id=attachment_id, preview_data_url=preview)
+                images.append(model_image)
+                image_files.append((image_path(settings.conversation_db_path, request.conversation_id, attachment_id), content))
+            else:
+                if name in documents:
+                    raise HTTPException(status_code=400, detail=f"Two documents use the same filename: {name}")
+                path = temporary_path / name
+                if not path.resolve().is_relative_to(temporary_path):
+                    raise HTTPException(status_code=400, detail="Invalid filename.")
+                path.write_bytes(content)
+                try:
+                    if not rag.parse_file(path):
+                        raise DocumentParseError("No readable text was found.")
+                except (DocumentParseError, ValueError) as exc:
+                    raise HTTPException(status_code=400, detail=f"{name}: {exc}") from exc
+                documents[name] = content
+            attachments.append(metadata)
+
+    selected = request.source_files if request.source_files is not None else conversation["source_files"]
+    selected = validate_source_files(subject, [name for name in selected if name not in documents])
+    selected = list(dict.fromkeys([*selected, *documents]))
+    if len(selected) > 12:
+        raise HTTPException(status_code=400, detail="Choose at most 12 documents for a conversation.")
+    request = request.model_copy(update={"source_files": selected})
+    written = []
+    try:
+        knowledge_root = settings.knowledge_dir_for(subject).resolve()
+        for name, content in documents.items():
+            path = knowledge_root / name
+            if not path.resolve().is_relative_to(knowledge_root):
+                raise HTTPException(status_code=400, detail="Invalid filename.")
+            previous = path.read_bytes() if path.exists() else None
+            written.append((path, previous, content))
+            path.write_bytes(content)
+        for path, content in image_files:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            written.append((path, None, content))
+            path.write_bytes(content)
+        if documents:
+            rag.rebuild()
+        return await complete_chat(request, user, attachments=attachments, current_images=images)
+    except Exception:
+        # Only restore this request's writes; preserve any newer file upload.
+        for path, previous, content in reversed(written):
+            if path.exists() and path.read_bytes() == content:
+                if previous is None:
+                    path.unlink()
+                else:
+                    path.write_bytes(previous)
+        if documents and written:
+            rag.rebuild()
+        raise
+
+
+async def complete_chat(
+    payload: ChatRequest,
+    user: AuthSession,
+    attachments: list[dict] | None = None,
+    current_images: list[str] | None = None,
 ):
     incoming_history = [item.model_dump() for item in payload.messages]
 
@@ -668,13 +822,22 @@ async def chat(
             if item["role"] == "user"
         ),
         "",
-    )
+    ).strip()
 
-    if not current_question:
+    if not current_question and not attachments:
         raise HTTPException(
             status_code=400,
             detail="本轮请求中没有找到用户问题。",
         )
+
+    automatic_analysis = not current_question
+    model_question = current_question or (
+        "Analyze the attachments in this message without asking for instructions. "
+        "Describe what is visible in any image, including readable text. "
+        "Explain a document's main points or a code file's purpose, inputs, steps, and outputs. "
+        "Use only these new attachments; do not infer unrelated project details.\n"
+        "Attachments: " + ", ".join(item["source_file"] for item in attachments)
+    )
 
     conversation_id = payload.conversation_id
     conversation = None
@@ -707,24 +870,20 @@ async def chat(
         history = [
             {
                 "role": item["role"],
-                "content": item["content"],
+                "content": item["content"] or (
+                    "Attachments: " + ", ".join(attachment["source_file"] for attachment in item.get("attachments", []))
+                    if item.get("attachments") else ""
+                ),
+                "attachments": item.get("attachments", []),
             }
             for item in stored_messages
         ]
 
-        # 保存本轮用户消息，再拼入模型上下文。
-        add_message(
-            settings.conversation_db_path,
-            conversation_id,
-            role="user",
-            content=current_question,
-            username=user.username,
-        )
-
         history.append(
             {
                 "role": "user",
-                "content": current_question,
+                "content": model_question,
+                "attachments": attachments or [],
             }
         )
 
@@ -733,11 +892,25 @@ async def chat(
         history = incoming_history
 
     rag = rag_manager.get(subject)
-    evidence_rows = (
-        rag.retrieve(current_question, payload.top_k)
-        if payload.use_rag and payload.top_k > 0
-        else []
-    )
+    selected_files = payload.source_files
+    if selected_files is None:
+        selected_files = conversation.get("source_files", []) if conversation else []
+    selected_files = validate_source_files(subject, selected_files)
+    evidence_files = [item["source_file"] for item in attachments if item.get("kind") == "file"] if automatic_analysis else selected_files
+    if evidence_files:
+        evidence_rows = rag.retrieve(model_question, max(3, payload.top_k), source_files=evidence_files)
+    elif payload.agent_mode == "project_assistant" or automatic_analysis:
+        evidence_rows = []
+    else:
+        evidence_rows = rag.retrieve(current_question, payload.top_k) if payload.use_rag and payload.top_k > 0 else []
+
+    if automatic_analysis:
+        # An uncaptioned new file gets its own analysis, without earlier material.
+        history = history[-1:]
+        if current_images:
+            history[-1]["images"] = current_images
+    elif conversation_id:
+        add_history_images(history[-12:], settings.conversation_db_path, conversation_id, current_images or [])
 
     messages = build_messages(
         history,
@@ -747,6 +920,7 @@ async def chat(
         subject,
         settings.model_provider,
         configured_model_name(),
+        source_files=evidence_files,
     )
 
     try:
@@ -775,14 +949,23 @@ async def chat(
         for item in evidence_rows
     ]
 
-    title = current_question[:24] + (
-        "…" if len(current_question) > 24 else ""
+    title_text = current_question or ", ".join(item["source_file"] for item in attachments)
+    title = title_text[:24] + (
+        "…" if len(title_text) > 24 else ""
     )
     title = title or "新对话"
     saved_assistant_message = None
+    saved_user_message = None
 
     # 新版：保存真实模型回答、RAG 证据和模型名称。
     if conversation_id:
+        # Save text and attachments together after the model request succeeds.
+        saved_user_message = add_message(
+            settings.conversation_db_path, conversation_id, role="user", content=current_question,
+            username=user.username, attachments=attachments,
+        )
+        if payload.source_files is not None:
+            set_conversation_sources(settings.conversation_db_path, conversation_id, selected_files, user.username)
         saved_assistant_message = add_message(
             settings.conversation_db_path,
             conversation_id,
@@ -830,6 +1013,8 @@ async def chat(
         title=title,
         subject=subject,
         conversation_id=conversation_id,
+        user_message=saved_user_message,
+        source_files=selected_files,
         assistant_message_id=(
             saved_assistant_message["message_id"]
             if saved_assistant_message

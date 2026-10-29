@@ -33,6 +33,8 @@ app/backend/data/learning_agent.db
 app/backend/data/chroma/
 app/backend/data/vector_store/
 app/backend/data/uploads/
+app/backend/data/chat_images/
+app/backend/data/chat_staging/
 app/backend/data/logs/
 app/backend/logs/
 

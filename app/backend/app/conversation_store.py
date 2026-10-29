@@ -63,6 +63,11 @@ def init_db(db_path: Path) -> bool:
                 """
             )
 
+        if "source_files_json" not in existing_columns:
+            conn.execute(
+                "ALTER TABLE conversations ADD COLUMN source_files_json TEXT NOT NULL DEFAULT '[]'"
+            )
+
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS users (
@@ -89,6 +94,10 @@ def init_db(db_path: Path) -> bool:
             )
             """
         )
+
+        message_columns = {row["name"] for row in conn.execute("PRAGMA table_info(messages)").fetchall()}
+        if "attachments_json" not in message_columns:
+            conn.execute("ALTER TABLE messages ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'")
 
         conn.execute(
             """
@@ -141,6 +150,12 @@ def init_db(db_path: Path) -> bool:
     return needs_legacy_owner_migration
 
 
+def _conversation_record(row: sqlite3.Row) -> dict[str, Any]:
+    record = dict(row)
+    record["source_files"] = json.loads(record.pop("source_files_json", "[]"))
+    return record
+
+
 def create_conversation(
     db_path: Path,
     title: str = "新对话",
@@ -169,6 +184,7 @@ def create_conversation(
         "subject": subject,
         "title": title,
         "agent_mode": agent_mode,
+        "source_files": [],
         "created_at": now,
         "updated_at": now,
     }
@@ -198,7 +214,7 @@ def list_conversations(
     with get_conn(db_path) as conn:
         rows = conn.execute(
             f"""
-            SELECT conversation_id, username, subject, title, agent_mode, created_at, updated_at
+            SELECT conversation_id, username, subject, title, agent_mode, source_files_json, created_at, updated_at
             FROM conversations
             {where_clause}
             ORDER BY updated_at DESC
@@ -207,7 +223,7 @@ def list_conversations(
             tuple(params),
         ).fetchall()
 
-    return [dict(row) for row in rows]
+    return [_conversation_record(row) for row in rows]
 
 
 def get_conversation(
@@ -226,14 +242,25 @@ def get_conversation(
     with get_conn(db_path) as conn:
         row = conn.execute(
             f"""
-            SELECT conversation_id, username, subject, title, agent_mode, created_at, updated_at
+            SELECT conversation_id, username, subject, title, agent_mode, source_files_json, created_at, updated_at
             FROM conversations
             WHERE conversation_id = ? {owner_clause}
             """,
             params,
         ).fetchone()
 
-    return dict(row) if row else None
+    return _conversation_record(row) if row else None
+
+
+def set_conversation_sources(
+    db_path: Path, conversation_id: str, source_files: list[str], username: str,
+) -> dict[str, Any] | None:
+    with get_conn(db_path) as conn:
+        conn.execute(
+            "UPDATE conversations SET source_files_json = ?, updated_at = ? WHERE conversation_id = ? AND username = ?",
+            (json.dumps(source_files, ensure_ascii=False), now_iso(), conversation_id, normalize_username(username)),
+        )
+    return get_conversation(db_path, conversation_id, username=username)
 
 
 def get_messages(
@@ -249,6 +276,7 @@ def get_messages(
                 m.role,
                 m.content,
                 m.evidence_json,
+                m.attachments_json,
                 m.model_used,
                 m.created_at,
                 f.rating AS feedback_rating,
@@ -279,6 +307,7 @@ def get_messages(
             item["evidence"] = []
 
         item.pop("evidence_json", None)
+        item["attachments"] = json.loads(item.pop("attachments_json") or "[]")
 
         if item["role"] == "assistant" and item["feedback_rating"] is not None:
             item["quality_feedback"] = {
@@ -331,6 +360,7 @@ def add_message(
     evidence: list[dict[str, Any]] | None = None,
     model_used: str | None = None,
     username: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     if role not in {"user", "assistant"}:
         raise ValueError("role 必须是 user 或 assistant")
@@ -367,9 +397,10 @@ def add_message(
                 role,
                 content,
                 evidence_json,
+                attachments_json,
                 model_used,
                 created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 message_id,
@@ -377,6 +408,7 @@ def add_message(
                 role,
                 content,
                 evidence_json,
+                json.dumps(attachments or [], ensure_ascii=False),
                 model_used,
                 now,
             ),
@@ -397,6 +429,7 @@ def add_message(
         "role": role,
         "content": content,
         "evidence": evidence or [],
+        "attachments": attachments or [],
         "model_used": model_used,
         "created_at": now,
     }

@@ -1044,3 +1044,55 @@ body{
     .ide-input-pane,.ide-output-pane{border-left:0}
     .ide-status-row{align-items:flex-start;flex-direction:column;gap:5px;padding:9px 14px}
 }
+
+/* Files can be uploaded from the composer or dropped anywhere in the chat. */
+.chat-card{position:relative}
+.chat-card .messages{min-height:0}
+.chat-card-head,.control-bar,.composer-wrap{flex-shrink:0}
+.chat-head-actions{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.chat-head-actions>button{padding:6px 9px;border:1px solid #dce5f4;border-radius:7px;background:#f7faff;color:#3565cd;font:inherit;font-size:11px;cursor:pointer}
+.chat-head-actions>button:disabled{opacity:.5;cursor:wait}
+.file-attachments{display:grid;gap:8px;width:min(400px,100%)}
+.file-card{display:flex;align-items:center;gap:12px;padding:13px 15px;border:1px solid #dce5f2;border-radius:13px;background:#f7f9fc;text-align:left;box-shadow:0 3px 10px rgba(37,63,108,.04)}
+.file-card.is-selected{border-color:#c4d6fb;background:#f1f6ff}
+.file-card-icon{display:grid;place-items:center;flex:none;width:42px;height:48px;border:1px solid #d0dff8;border-radius:7px;background:#fff;color:#3565cd;font-size:10px;font-weight:800}
+.file-card-info{display:grid;gap:5px;flex:1;min-width:0}
+.file-card-info b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#28466e;font-size:13px;font-weight:650}
+.file-card-info small{color:#7b8ca5;font-size:10px;line-height:1.5}
+.file-card button{flex:none;min-width:24px;min-height:26px;padding:3px 6px;border:0;border-radius:5px;background:transparent;color:#6481aa;font-size:11px;cursor:pointer}
+.file-card.is-selected button{font-size:19px}
+.file-card button:hover{background:#dfeafd;color:#315ea6}
+.file-card button:disabled{opacity:.4;cursor:wait}
+.file-card-preview{width:90px;height:70px;object-fit:contain;border-radius:7px;background:#fff;flex:none}
+.file-message:has(.bubble){max-width:min(1000px,90%)}
+.draft-attachments{display:grid;gap:7px;margin-bottom:10px}
+.draft-attachments>small{color:#75859d;font-size:11px}
+.draft-files{display:flex;flex-wrap:wrap;gap:8px;max-height:160px;overflow:auto}
+.draft-file{display:flex;align-items:center;gap:8px;max-width:290px;min-height:46px;padding:6px 8px;border:1px solid #cfddf5;border-radius:9px;background:#f3f7ff;color:#395982;font-size:11px}
+.draft-file img{width:56px;height:44px;border-radius:5px;object-fit:contain;background:#fff}
+.draft-file b{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600}
+.draft-file button{flex:none;border:0;background:transparent;color:#6781a6;font-size:18px;cursor:pointer}
+.chat-upload-status:not(:empty){color:#b6404a;font-size:12px;line-height:1.5}
+.source-choice{display:flex;align-items:center;gap:9px;cursor:pointer;overflow-wrap:anywhere}
+.source-choice input{flex:none;accent-color:#3971ed}
+.source-choice:has(input:checked){border-color:#a9c2f4;background:#f1f6ff}
+.attach-file-btn{display:flex;align-items:center;justify-content:center;gap:5px;flex:none;min-height:38px;padding:0 10px;border:1px solid #dce4f0;border-radius:9px;background:#f5f8ff;color:#3565cd;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
+.attach-file-btn svg{width:18px;height:18px;flex:none}
+.attach-file-btn:hover{background:#eaf1ff;border-color:#a9c0f5}
+.attach-file-btn:focus-visible{outline:2px solid #4b78ec;outline-offset:2px}
+.attach-file-btn:disabled{opacity:.5;cursor:not-allowed}
+.chat-drop-overlay{position:absolute;inset:8px;z-index:20;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;padding:20px;border:2px dashed #4779e8;border-radius:12px;background:rgba(241,246,255,.97);color:#285bc8;pointer-events:none;text-align:center}
+.chat-drop-overlay>span{font-size:36px;line-height:1}
+.chat-drop-overlay>b{font-size:20px}
+.chat-drop-overlay>small{font-size:13px;color:#58719d}
+.chat-upload-status{display:grid;gap:6px;max-height:84px;overflow:auto;margin:0 0 9px}
+.chat-upload-row{display:flex;align-items:center;gap:8px;padding:7px 10px;border:1px solid #dce5f5;border-radius:8px;background:#f7faff;font-size:11px;line-height:1.4}
+.chat-upload-icon{flex:none;color:#5278ba;font-weight:800}
+.chat-upload-name{flex:1;min-width:60px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#334662}
+.chat-upload-detail{max-width:65%;color:#647b9b;overflow-wrap:anywhere}
+.chat-upload-row[data-state="ready"]{border-color:#cde8db;background:#f6fcf8}
+.chat-upload-row[data-state="ready"] .chat-upload-icon{color:#198250}
+.chat-upload-row[data-state="error"]{border-color:#f0c9cd;background:#fff7f7}
+.chat-upload-row[data-state="error"] .chat-upload-icon,.chat-upload-row[data-state="error"] .chat-upload-detail{color:#b6404a}
+.dialog-upload-status{margin:0 26px 16px}
+@media(max-width:580px){.attach-file-btn{padding:0 8px}.attach-file-btn span{display:none}.chat-upload-row{flex-wrap:wrap}.chat-upload-detail{max-width:100%}.dialog-upload-status{margin:0 16px 14px}}

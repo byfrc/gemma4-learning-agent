@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <meta name="theme-color" content="#0b1020" />
-  <link rel="stylesheet" href="./styles.css" />
+  <link rel="stylesheet" href="./styles.css?v=optional-text-4" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css"/>
 </head>
 <body>
@@ -126,7 +126,7 @@
           <div class="metric-grid">
             <article><div class="metric-icon blue">▤</div><div><b id="fileMetric">0</b><span data-i18n="kb_files">知识库文件</span></div></article>
             <article><div class="metric-icon violet">◫</div><div><b id="chunkMetric">0</b><span data-i18n="kb_chunks">可检索片段</span></div></article>
-            <article><div class="metric-icon green">✦</div><div><b id="agentMetric">4</b><span data-i18n="learning_agent">学习智能体</span></div></article>
+            <article><div class="metric-icon green">✦</div><div><b id="agentMetric">5</b><span data-i18n="learning_agent">学习智能体</span></div></article>
           </div>
         </section>
 
@@ -140,33 +140,41 @@
 
         <nav class="tabs" aria-label="选择智能体模式">
           <button class="tab active" data-mode="qa" type="button"><span class="tab-icon">⌁</span><span><b data-i18n="tab_qa">AI 问答</b><small data-i18n="tab_qa_desc">知识解释与追问</small></span></button>
+          <button class="tab" data-mode="project_assistant" type="button"><span class="tab-icon">&lt;/&gt;</span><span><b data-i18n="tab_project">项目助手</b><small data-i18n="tab_project_desc">理解代码与排查错误</small></span></button>
           <button class="tab" data-mode="learning_path" type="button"><span class="tab-icon">↗</span><span><b data-i18n="tab_plan">学习路径</b><small data-i18n="tab_plan_desc">目标拆解与计划</small></span></button>
           <button class="tab" data-mode="quiz" type="button"><span class="tab-icon">?</span><span><b data-i18n="tab_quiz">AI 出题</b><small data-i18n="tab_quiz_desc">检测掌握程度</small></span></button>
           <button class="tab" data-mode="coach" type="button"><span class="tab-icon">◎</span><span><b data-i18n="tab_coach">AI 陪练</b><small data-i18n="tab_coach_desc">苏格拉底式引导</small></span></button>
           <button id="onlineIdeTab" class="tab is-hidden" data-mode="online_ide" type="button"><span class="tab-icon">{ }</span><span><b data-i18n="tab_ide">在线IDE</b><small data-i18n="tab_ide_desc">编写并运行 Java</small></span></button>
         </nav>
         <section class="chat-card">
+          <div id="chatDropOverlay" class="chat-drop-overlay is-hidden" aria-hidden="true">
+            <span>＋</span><b data-i18n="drop_files">拖放文件到这里</b><small data-i18n="drop_files_desc">添加项目文档或代码到当前知识库</small>
+          </div>
           <div class="chat-card-head">
             <div><span class="assistant-dot"></span><b id="assistantName">Gemma4 学习助教</b><small id="assistantSub">已连接私域知识库</small></div>
-            <span class="session-label" data-i18n="current_session">当前会话</span>
+            <span class="chat-head-actions"><button id="chooseSourcesBtn" type="button" data-i18n="choose_sources">选择已上传的文件</button><span class="session-label" data-i18n="current_session">当前会话</span></span>
           </div>
 
           <div id="chatMessages" class="messages" aria-live="polite"></div>
 
           <div class="control-bar">
-            <div class="control-group"><label for="topK">RAG 证据数</label><input id="topK" type="range" min="0" max="5" value="3"><output id="topKValue">3</output></div>
+            <div id="ragEvidenceControl" class="control-group"><label for="topK">RAG 证据数</label><input id="topK" type="range" min="0" max="5" value="3"><output id="topKValue">3</output></div>
             <div class="control-group"><label for="maxTokens">回答长度</label><input id="maxTokens" type="range" min="128" max="2048" step="64" value="768"><output id="maxTokensValue">768</output></div>
-            <label class="rag-switch"><input id="useRag" type="checkbox" checked><span></span>启用 RAG 检索</label>
+            <label id="ragToggleControl" class="rag-switch"><input id="useRag" type="checkbox" checked><span></span>启用 RAG 检索</label>
           </div>
 
           <div class="composer-wrap">
+            <div id="draftAttachments" class="draft-attachments is-hidden"></div>
+            <div id="chatUploadStatus" class="chat-upload-status is-hidden" role="status" aria-live="polite"></div>
+            <input id="chatFileInput" type="file" multiple hidden accept=".png,.jpg,.jpeg,.webp,.txt,.md,.csv,.pdf,.ppt,.pptx,.py,.js,.jsx,.ts,.tsx,.java,.json,.html,.css,.sql,.yaml,.yml,.toml,.rs,.go,.c,.h,.cpp,.cs,.xml">
             <div class="composer">
-
-                
+              <button id="attachFileBtn" class="attach-file-btn" type="button" title="上传文件" aria-label="上传文件">
+                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m8 13 6-6a3 3 0 0 1 4 4l-8 8a5 5 0 0 1-7-7l9-9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg><span data-i18n="attach_files">文件</span>
+              </button>
               <textarea id="userInput" placeholder="输入你的问题；支持基于上一轮内容继续追问…" rows="1"></textarea>
               <button id="sendBtn" class="send-btn" type="button"><span data-i18n="send">发送</span><svg viewBox="0 0 20 20" fill="none"><path d="M4 10h11M10 4l6 6-6 6" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
             </div>
-            <div class="composer-hint"><span data-i18n="enter_send">Enter 发送</span><i></i><span data-i18n="shift_enter">Shift + Enter 换行</span><i></i><span data-i18n="privacy">你的资料不会被用于公共训练</span></div>
+            <div class="composer-hint"><span data-i18n="enter_send">Enter 发送</span><i></i><span data-i18n="shift_enter">Shift + Enter 换行</span><i></i><span data-i18n="upload_hint">选择文件或拖放到聊天区 · 每个文件最大 30 MB</span></div>
           </div>
         </section>
         <section id="javaIdePanel" class="ide-panel is-hidden">
@@ -210,7 +218,7 @@
       <div>
         <span class="eyebrow">PRIVATE KNOWLEDGE BASE</span>
         <h2 data-i18n="knowledge_title">知识库管理</h2>
-        <p data-i18n="knowledge_desc">上传后系统会自动切块并建立混合检索索引。</p>
+        <p data-i18n="knowledge_desc">选择已有资料，或添加文件和图片后点击发送。问题可选；留空时会自动分析附件。</p>
       </div>
       <div class="dialog-head-actions">
         <div class="dialog-subject" id="knowledgeSubjectLabel">AI 知识库</div>
@@ -218,10 +226,11 @@
       </div>
     </div>
     <form id="uploadForm" class="upload">
-      <input id="knowledgeFile" type="file" accept=".txt,.md,.csv,.pdf,.ppt,.pptx" required>
-      <div class="upload-copy"><b data-i18n="select_material">选择课程资料</b><small data-i18n="upload_desc">支持 TXT、MD、CSV、PDF、PPT、PPTX，单个文件不超过 30 MB。</small></div>
-      <button type="submit" data-i18n="upload_button">上传并构建索引</button>
+      <input id="knowledgeFile" type="file" multiple accept=".png,.jpg,.jpeg,.webp,.txt,.md,.csv,.pdf,.ppt,.pptx,.py,.js,.jsx,.ts,.tsx,.java,.json,.html,.css,.sql,.yaml,.yml,.toml,.rs,.go,.c,.h,.cpp,.cs,.xml" required>
+      <div class="upload-copy"><b data-i18n="select_material">选择文档、代码或图片</b><small data-i18n="upload_desc">支持文档、代码和 PNG/JPEG/WebP 图片，每个文件最大 30 MB。可以只发送附件，也可以添加问题。</small></div>
+      <button type="submit" data-i18n="upload_button">添加到消息</button>
     </form>
+    <div id="knowledgeUploadStatus" class="chat-upload-status dialog-upload-status is-hidden" role="status" aria-live="polite"></div>
     <p id="knowledgeReadOnly" class="knowledge-readonly is-hidden" role="status"></p>
     <div class="source-title"><span data-i18n="source_title">已入库资料</span><small id="sourceDesc" data-i18n="source_desc">上传新文件会自动刷新索引</small></div>
     <div id="sourceList" class="source-list"></div>
@@ -233,6 +242,6 @@
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
 
   <script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"></script>
-  <script src="./app.js"></script>
+  <script src="./app.js?v=optional-text-4"></script>
 </body>
 </html>

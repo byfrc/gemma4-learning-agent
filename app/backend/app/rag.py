@@ -12,6 +12,7 @@ from sklearn.metrics.pairwise import cosine_similarity
 
 from .document_parser import (
     SUPPORTED_DOCUMENT_SUFFIXES,
+    SUPPORTED_SOURCE_SUFFIXES,
     DocumentParser,
     ParsedSection,
     normalize_text,
@@ -75,8 +76,8 @@ class RetrievedChunk:
     document_type: str | None = None
 
 
-def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
-    text = normalize_text(text)
+def chunk_text(text: str, chunk_size: int, overlap: int, preserve_whitespace: bool = False) -> list[str]:
+    text = text.strip("\n") if preserve_whitespace else normalize_text(text)
     if not text:
         return []
     if len(text) <= chunk_size:
@@ -92,7 +93,7 @@ def chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
             if cut > chunk_size * 0.5:
                 end = start + cut + 1
                 piece = text[start:end]
-        chunks.append(normalize_text(piece))
+        chunks.append(piece.strip("\n") if preserve_whitespace else normalize_text(piece))
         if end >= len(text):
             break
         start = max(start + 1, end - overlap)
@@ -152,7 +153,10 @@ class HybridRAGEngine:
                 sections = self.parser.parse(path)
                 for section_index, section in enumerate(sections):
                     for chunk_index, piece in enumerate(
-                        chunk_text(section.text, self.chunk_size, self.overlap)
+                        chunk_text(
+                            section.text, self.chunk_size, self.overlap,
+                            preserve_whitespace=path.suffix.lower() in SUPPORTED_SOURCE_SUFFIXES,
+                        )
                     ):
                         rows.append({
                             "chunk_id": (
@@ -224,7 +228,7 @@ class HybridRAGEngine:
         })
         return len(sources), len(self.chunks), sources
 
-    def retrieve(self, query: str, top_k: int) -> list[RetrievedChunk]:
+    def retrieve(self, query: str, top_k: int, source_files: list[str] | None = None) -> list[RetrievedChunk]:
         query = normalize_text(query)
         if not query or not self.chunks or self.word_vectorizer is None:
             return []
@@ -236,6 +240,40 @@ class HybridRAGEngine:
             c_score = cosine_similarity(cq, self.char_matrix).ravel()
             scores = 0.45 * w_score + 0.55 * c_score
             order = np.argsort(-scores)
+
+            if source_files is not None:
+                # An attached file is the context, even when a generic question
+                # shares no vocabulary with it. Never fall back to other files.
+                allowed = set(source_files)
+                candidates = [i for i, row in enumerate(self.chunks)
+                              if repair_mojibake_filename(row["source_file"]) in allowed]
+                budget = 6000
+                if sum(len(self.chunks[i]["text"]) for i in candidates) <= budget:
+                    chosen = candidates
+                else:
+                    # Include each file's beginning, then relevant excerpts.
+                    beginnings = list(dict.fromkeys(
+                        next(i for i in candidates if repair_mojibake_filename(self.chunks[i]["source_file"]) == name)
+                        for name in source_files
+                        if any(repair_mojibake_filename(self.chunks[i]["source_file"]) == name for i in candidates)
+                    ))
+                    eligible = set(candidates)
+                    ranked = beginnings + [int(i) for i in order if i in eligible and i not in beginnings]
+                    chosen = []
+                    for i in ranked:
+                        size = len(self.chunks[i]["text"])
+                        if size <= budget:
+                            chosen.append(i)
+                            budget -= size
+                    chosen.sort()
+                return [RetrievedChunk(
+                    chunk_id=self.chunks[i]["chunk_id"],
+                    doc_id=repair_mojibake_filename(self.chunks[i]["doc_id"]),
+                    source_file=repair_mojibake_filename(self.chunks[i]["source_file"]),
+                    text=self.chunks[i]["text"], score=round(float(scores[i]), 4),
+                    location=self.chunks[i].get("location"),
+                    document_type=self.chunks[i].get("document_type"),
+                ) for i in chosen]
 
             selected, selected_tokens = [], []
             for index in order:

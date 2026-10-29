@@ -1,5 +1,7 @@
 # Gemma4 私有学习智能体
 
+English: [How to run on Windows](README_EN.md)
+
 本项目是一个基于 **Gemma4、Ollama/LM Studio/vLLM、FastAPI、RAG 和 LoRA 数据闭环** 的私有学习智能体原型系统。
 
 系统面向人工智能与 Java 入门学习场景，支持本地大模型推理、分学科私有知识库问答、学科切换、网页交互、对话历史保存、回答质量反馈，以及高质量样本导出用于后续 LoRA 微调。

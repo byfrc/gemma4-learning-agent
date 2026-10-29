@@ -107,7 +107,8 @@ start_windows.bat
 3. 创建 `app\.venv-windows\`；
 4. 安装 `app\backend\requirements.txt` 中的 Python 依赖；
 5. 根据模式检查并启动 Ollama 或 LM Studio；
-6. Ollama 模式自动拉取指定模型，默认是 `gemma4:e4b`；
+6. Ollama 模式自动拉取指定模型，默认是 `gemma4:e4b`；首次启动时还会自动配置图片识别
+   （下载约 534 MB 的视觉投影文件，创建 `gemma4-project-vision:e4b` 并做一次图片自检）；
 7. LM Studio 模式自动选择并加载客户端中已下载或导入的 Gemma 模型；
 8. 创建临时前端副本；
 9. 将前端 API 地址指向 `http://127.0.0.1:8000/api`；
@@ -429,7 +430,14 @@ ollama pull gemma4:e4b
 .\start_windows.bat
 ```
 
-### 11.5 LM Studio 没有启动
+### 11.5 图片识别不可用
+
+Ollama 自带的 Gemma4 视觉投影在 Windows 上无法识别图片。使用默认模型时，启动器会自动运行
+`app\deploy\repair_gemma4_vision.py`，只有图片自检通过后才会切换到
+`gemma4-project-vision:e4b`。如果配置失败，文字问答仍可使用，启动器会给出黄色提示；
+确认网络正常后重新运行 `start_windows.bat` 即可重试，已下载的部分会继续下载。
+
+### 11.6 LM Studio 没有启动
 
 检查 LM Studio API：
 
@@ -462,7 +470,7 @@ ID 后通过 `-LMStudioModel` 指定。
 重新启动后端。启动时会自动恢复这类被错误编码的文件名，并重建对应的 RAG 索引；
 JSON 接口也会返回 `application/json; charset=utf-8`。
 
-### 11.6 端口被占用
+### 11.7 端口被占用
 
 默认端口：
 
@@ -481,7 +489,7 @@ LM Studio：1234
 
 Ollama 端口默认固定为 11434，LM Studio 端口默认是 1234。
 
-### 11.7 浏览器打不开页面
+### 11.8 浏览器打不开页面
 
 先检查 FastAPI：
 
@@ -502,7 +510,7 @@ app\backend\logs\local_deploy\api.error.log
 app\backend\logs\local_deploy\frontend.error.log
 ```
 
-### 11.8 `.ppt` 上传失败
+### 11.9 `.ppt` 上传失败
 
 安装 LibreOffice：
 

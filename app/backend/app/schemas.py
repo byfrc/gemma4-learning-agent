@@ -1,10 +1,13 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field
 
 SubjectKey = Literal["ai", "java"]
 UserRole = Literal["admin", "student"]
+# Project Assistant is available in both subjects, using each subject's own data.
+AgentMode = Literal["qa", "learning_path", "quiz", "coach", "project_assistant"]
+SourceFile = Annotated[str, Field(min_length=1, max_length=255)]
 
 
 class ChatMessage(BaseModel):
@@ -15,8 +18,9 @@ class ChatMessage(BaseModel):
 class ChatRequest(BaseModel):
     messages: list[ChatMessage] = Field(min_length=1, max_length=24)
     conversation_id: str | None = Field(default=None, min_length=1, max_length=100)
-    agent_mode: Literal["qa", "learning_path", "quiz", "coach"] = "qa"
+    agent_mode: AgentMode = "qa"
     subject: SubjectKey | None = None
+    source_files: list[SourceFile] | None = Field(default=None, max_length=12)
     
     # 前端语言模式
     language: Literal["zh", "en"] = "zh"
@@ -25,6 +29,15 @@ class ChatRequest(BaseModel):
     top_k: int = Field(default=3, ge=0, le=6)
     temperature: float = Field(default=0.35, ge=0, le=1.5)
     max_tokens: int = Field(default=768, ge=64, le=2048)
+
+
+class AttachmentChatMessage(ChatMessage):
+    content: str = Field(default="", max_length=16000)
+
+
+class AttachmentChatRequest(ChatRequest):
+    # Files provide the content when no written instruction is supplied.
+    messages: list[AttachmentChatMessage] = Field(default_factory=list, max_length=24)
 
 
 class Evidence(BaseModel):
@@ -45,6 +58,8 @@ class ChatResponse(BaseModel):
     subject: SubjectKey = "ai"
     conversation_id: str | None = None
     assistant_message_id: str | None = None
+    user_message: dict[str, Any] | None = None
+    source_files: list[str] = Field(default_factory=list)
 
 class FeedbackRequest(BaseModel):
     question: str = Field(min_length=1)
@@ -79,13 +94,17 @@ class JavaRunResponse(BaseModel):
 
 class ConversationCreateRequest(BaseModel):
     title: str = Field(default="新对话", min_length=1, max_length=120)
-    agent_mode: Literal["qa", "learning_path", "quiz", "coach"] = "qa"
+    agent_mode: AgentMode = "qa"
     subject: SubjectKey | None = None
 
 
 class ConversationRenameRequest(BaseModel):
     title: str = Field(min_length=1, max_length=120)
-    agent_mode: Literal["qa", "learning_path", "quiz", "coach"] | None = None
+    agent_mode: AgentMode | None = None
+
+
+class ConversationSourcesRequest(BaseModel):
+    source_files: list[SourceFile] = Field(default_factory=list, max_length=12)
 
 
 class ConversationSummary(BaseModel):
@@ -93,6 +112,7 @@ class ConversationSummary(BaseModel):
     subject: SubjectKey
     title: str
     agent_mode: str
+    source_files: list[str] = Field(default_factory=list)
     created_at: str
     updated_at: str
 
@@ -149,12 +169,21 @@ class RegisterResponse(BaseModel):
     message: str
 
 
+class FileAttachment(BaseModel):
+    source_file: str
+    size_bytes: int | None = Field(default=None, ge=0)
+    kind: Literal["file", "image"] = "file"
+    attachment_id: str | None = None
+    preview_data_url: str | None = None
+
+
 class StoredMessage(BaseModel):
     message_id: str
     conversation_id: str
     role: Literal["user", "assistant"]
     content: str
     evidence: list[dict[str, Any]] = Field(default_factory=list)
+    attachments: list[FileAttachment] = Field(default_factory=list)
     model_used: str | None = None
     created_at: str
     quality_feedback: MessageFeedbackResponse | None = None

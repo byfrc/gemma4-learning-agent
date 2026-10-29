@@ -22,7 +22,7 @@ param(
     [int]$ApiPort = 8000,
 
     [ValidateRange(1, 65535)]
-    [int]$FrontendPort = 8080,
+    [int]$FrontendPort = 18780,
 
     [switch]$NoBrowser,
 
@@ -34,6 +34,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
+$OllamaModelWasSpecified = $PSBoundParameters.ContainsKey("OllamaModel")
 
 $utf8Output = New-Object System.Text.UTF8Encoding($false)
 [Console]::OutputEncoding = $utf8Output
@@ -590,6 +591,16 @@ function Get-ProcessCommandLine([int]$ProcessId) {
     return ""
 }
 
+function Stop-OwnedOllama([int]$ProcessId) {
+    $commandLine = Get-ProcessCommandLine $ProcessId
+    if ($commandLine -like "*ollama.exe*" -and $commandLine -like "*serve*") {
+        # The model server is a child process; stopping only Ollama leaks its memory.
+        Start-Process -FilePath (Join-Path $env:SystemRoot "System32\taskkill.exe") `
+            -ArgumentList @("/PID", [string]$ProcessId, "/T", "/F") `
+            -WindowStyle Hidden -Wait | Out-Null
+    }
+}
+
 function Stop-ManagedProcess([string]$Name, [string[]]$ExpectedTokens) {
     $pidPath = Join-Path $LogDir "$Name.pid"
     if (-not (Test-Path -LiteralPath $pidPath)) {
@@ -616,7 +627,12 @@ function Stop-ManagedProcess([string]$Name, [string[]]$ExpectedTokens) {
         $process = Get-Process -Id $processId -ErrorAction SilentlyContinue
         if ($process) {
             Write-Log "停止 $Name（PID $processId）。"
-            Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            if ($Name -eq "ollama-owned") {
+                Stop-OwnedOllama $processId
+            }
+            else {
+                Stop-Process -Id $processId -Force -ErrorAction SilentlyContinue
+            }
         }
     }
 
@@ -624,9 +640,9 @@ function Stop-ManagedProcess([string]$Name, [string[]]$ExpectedTokens) {
 }
 
 function Stop-AllServices {
+    Stop-ManagedProcess "ollama-owned" @("ollama.exe", "serve")
     Stop-ManagedProcess "frontend" @("http.server")
     Stop-ManagedProcess "api" @("uvicorn", "app.main:app")
-    Stop-ManagedProcess "ollama-owned" @("ollama.exe", "serve")
     Stop-LMStudioServer
     Write-Log "已停止本项目由启动器创建的服务。"
 }
@@ -859,6 +875,66 @@ function Install-LMStudioFromOfficialUrl {
     }
 }
 
+function Get-OllamaModelNames([string]$OllamaPath) {
+    $models = @(& $OllamaPath list 2>$null)
+    return @($models |
+        Select-Object -Skip 1 |
+        ForEach-Object { ($_ -split "\s+")[0] })
+}
+
+function Get-VerifiedVisionModel([string]$OllamaPath) {
+    $visionConfigPath = Join-Path $LogDir "vision-model.json"
+    if (-not (Test-Path -LiteralPath $visionConfigPath)) {
+        return $null
+    }
+
+    try {
+        $visionConfig = Get-Content -LiteralPath $visionConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    }
+    catch {
+        Write-Log "Ignoring unreadable local vision configuration."
+        return $null
+    }
+
+    if ($visionConfig.vision_verified -ne $true -or
+        $visionConfig.base_model -ne $OllamaModel -or
+        (Get-OllamaModelNames $OllamaPath) -notcontains $visionConfig.model) {
+        return $null
+    }
+    return [string]$visionConfig.model
+}
+
+function Ensure-VisionModel([string]$OllamaPath) {
+    $visionModel = Get-VerifiedVisionModel $OllamaPath
+    if ($visionModel) {
+        return $visionModel
+    }
+
+    # Ollama's bundled Gemma4 projector cannot read images on Windows. The repair
+    # builds a separate alias once and only records it after an image check passes.
+    Write-Log "Setting up Gemma4 image support (one-time; downloads about 534 MB)."
+    $repairExitCode = $null
+    try {
+        $repairExitCode = Invoke-ProcessWithProgress `
+            $VenvPython `
+            @((Join-Path $PSScriptRoot "repair_gemma4_vision.py")) `
+            $BackendDir `
+            "Setting up Gemma4 image support" `
+            7200
+    }
+    catch {
+        Write-Log $_.Exception.Message
+    }
+
+    if ($repairExitCode -eq 0) {
+        $visionModel = Get-VerifiedVisionModel $OllamaPath
+    }
+    if (-not $visionModel) {
+        Write-Host "[windows-native] Gemma4 image support could not be set up; see the output above. Text chat still works with $OllamaModel. Start the launcher again to retry." -ForegroundColor Yellow
+    }
+    return $visionModel
+}
+
 function Ensure-Ollama {
     if ($Mode -ne "ollama") {
         return $null
@@ -901,11 +977,7 @@ function Ensure-Ollama {
         Throw-DeploymentError "Ollama 模型名称不能为空。"
     }
 
-    $models = @(& $ollama list 2>$null)
-    $modelFound = $models |
-        Select-Object -Skip 1 |
-        ForEach-Object { ($_ -split "\s+")[0] } |
-        Where-Object { $_ -eq $OllamaModel }
+    $modelFound = (Get-OllamaModelNames $ollama) -contains $OllamaModel
     if (-not $modelFound) {
         Write-Log "本地没有模型 $OllamaModel，开始下载。"
         $pullExitCode = Invoke-ProcessWithProgress `
@@ -916,6 +988,14 @@ function Ensure-Ollama {
             7200
         if ($pullExitCode -ne 0) {
             Throw-DeploymentError "Ollama 模型下载失败：$OllamaModel，退出码：$pullExitCode"
+        }
+    }
+
+    if (-not $OllamaModelWasSpecified -and $OllamaModel -eq "gemma4:e4b") {
+        $visionModel = Ensure-VisionModel $ollama
+        if ($visionModel) {
+            $script:OllamaModel = $visionModel
+            Write-Log "Using the locally verified Gemma4 vision model: $OllamaModel"
         }
     }
 
@@ -1577,7 +1657,14 @@ function Open-Browser {
 
 function Remove-TemporaryFrontend {
     if ($script:TempFrontend -and (Test-Path -LiteralPath $script:TempFrontend)) {
-        Remove-Item -LiteralPath $script:TempFrontend -Recurse -Force -ErrorAction SilentlyContinue
+        $tempRoot = [IO.Path]::GetFullPath($env:TEMP).TrimEnd([char]92) +
+            [IO.Path]::DirectorySeparatorChar
+        $frontendRoot = [IO.Path]::GetFullPath($script:TempFrontend)
+        if (-not $frontendRoot.StartsWith($tempRoot, [StringComparison]::OrdinalIgnoreCase) -or
+            (Split-Path $frontendRoot -Leaf) -notlike "gemma4-learning-frontend-*") {
+            Throw-DeploymentError "Refusing to remove a frontend directory outside the launcher temporary directory."
+        }
+        Remove-Item -LiteralPath $frontendRoot -Recurse -Force -ErrorAction SilentlyContinue
         $script:TempFrontend = $null
     }
 }
@@ -1592,7 +1679,7 @@ function Cleanup-StartedServices {
     if ($script:OllamaStartedByLauncher -and
         $script:OllamaProcess -and
         -not $script:OllamaProcess.HasExited) {
-        Stop-Process -Id $script:OllamaProcess.Id -Force -ErrorAction SilentlyContinue
+        Stop-OwnedOllama $script:OllamaProcess.Id
     }
 
     Remove-Item -LiteralPath (Join-Path $LogDir "frontend.pid") -Force -ErrorAction SilentlyContinue
